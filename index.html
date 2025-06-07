@@ -1,17 +1,77 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coin Charts</title>
     <style>
-        body { margin: 0; font-family: Arial, sans-serif; }
-        #chart-container { width: 100%; height: 100vh; position: relative; }
-        canvas { width: 100%; height: 100%; }
-        #controls { position: absolute; top: 10px; right: 60px; z-index: 10; }
-        select { padding: 5px; font-size: 14px; }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        #chart-container {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 60px;
+            z-index: 10;
+        }
+
+        select {
+            padding: 5px;
+            font-size: 14px;
+        }
+
+        #tool-menu {
+            position: absolute;
+            left: 10px;
+            top: 10px;
+            width: 40px;
+            z-index: 10;
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 5px 0;
+        }
+
+        #tool-menu button {
+            width: 30px;
+            height: 30px;
+            margin: 5px 0;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #333;
+            transition: background-color 0.2s;
+        }
+
+        #tool-menu button:hover {
+            background-color: #e0e0e0;
+            border-radius: 4px;
+        }
+
+        #tool-menu button.active {
+            background-color: #d0d0d0;
+        }
     </style>
 </head>
+
 <body>
     <div id="chart-container">
         <canvas id="chart"></canvas>
@@ -21,6 +81,11 @@
                 <option value="linear">Linear</option>
                 <option value="logarithmic">Logarithmic</option>
             </select>
+        </div>
+        <div id="tool-menu">
+            <button id="tool-crosshair" title="Toggle Crosshair">✛</button>
+            <button id="tool-ma" title="Toggle Moving Average">📈</button>
+            <button id="tool-reset" title="Reset View">↻</button>
         </div>
     </div>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
@@ -67,7 +132,10 @@
             }
 
             setData(data) {
-                this.data = data;
+                this.data = data.filter(d => {
+                    const date = new Date(d.time);
+                    return d.time && !isNaN(date.getTime()) && !isNaN(d.open) && !isNaN(d.high) && !isNaN(d.low) && !isNaN(d.close);
+                });
                 this.chart.render();
             }
 
@@ -120,9 +188,8 @@
                 this.isDragging = false;
                 this.lastMouseX = 0;
                 this.crosshair = null;
-                this.drawing = false;
-                this.startPoint = null;
-                this.lines = [];
+                this.showCrosshair = true;
+                this.showMovingAverage = true;
 
                 this.resize();
                 this.initEvents();
@@ -144,9 +211,9 @@
                     const rect = this.canvas.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
                     const width = this.canvas.offsetWidth;
-                    const zoomFactor = e.deltaY > 0 ? 0.97 : 1.03; // Further reduced sensitivity
+                    const zoomFactor = e.deltaY > 0 ? 0.97 : 1.03;
 
-                    if (mouseX > width - 50) {
+                    if (mouseX > width - 60) {
                         if (this.options.scaleType === 'logarithmic') {
                             const logRange = this.view.maxLogPrice - this.view.minLogPrice;
                             const newLogRange = Math.max(logRange / zoomFactor, 0.01);
@@ -174,10 +241,6 @@
                     if (e.button === 0) {
                         this.isDragging = true;
                         this.lastMouseX = e.clientX;
-                    } else if (e.button === 2) {
-                        this.drawing = true;
-                        const rect = this.canvas.getBoundingClientRect();
-                        this.startPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
                     }
                 });
 
@@ -190,7 +253,7 @@
                         this.view.offsetX += dx / this.view.scaleX;
                         this.lastMouseX = e.clientX;
                         this.render();
-                    } else {
+                    } else if (this.showCrosshair) {
                         this.crosshair = { x: mouseX, y: mouseY };
                         this.render();
                     }
@@ -199,21 +262,40 @@
                 this.canvas.addEventListener('mouseup', (e) => {
                     if (e.button === 0) {
                         this.isDragging = false;
-                    } else if (e.button === 2 && this.drawing) {
-                        const rect = this.canvas.getBoundingClientRect();
-                        const endPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-                        this.lines.push({ start: this.startPoint, end: endPoint });
-                        this.drawing = false;
-                        this.startPoint = null;
-                        this.render();
                     }
                 });
-
-                this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
                 const scaleSelect = document.getElementById('scale-select');
                 scaleSelect.addEventListener('change', (e) => {
                     this.options.scaleType = e.target.value;
+                    this.render();
+                });
+
+                // Tool menu event listeners
+                const crosshairButton = document.getElementById('tool-crosshair');
+                crosshairButton.classList.add('active');
+                crosshairButton.addEventListener('click', () => {
+                    this.showCrosshair = !this.showCrosshair;
+                    this.crosshair = null;
+                    crosshairButton.classList.toggle('active');
+                    this.render();
+                });
+
+                const maButton = document.getElementById('tool-ma');
+                maButton.classList.add('active');
+                maButton.addEventListener('click', () => {
+                    this.showMovingAverage = !this.showMovingAverage;
+                    maButton.classList.toggle('active');
+                    this.render();
+                });
+
+                const resetButton = document.getElementById('tool-reset');
+                resetButton.addEventListener('click', () => {
+                    this.view.offsetX = 0;
+                    this.view.scaleX = 1;
+                    this.view.minPrice = 0;
+                    this.view.maxPrice = 100;
+                    this.calculatePriceRange();
                     this.render();
                 });
 
@@ -258,8 +340,9 @@
             }
 
             formatDate(dateStr) {
+                if (!dateStr || typeof dateStr !== 'string') return '';
                 const date = new Date(dateStr);
-                return date.toISOString().split('T')[0];
+                return isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
             }
 
             calculateMovingAverage(period) {
@@ -276,13 +359,20 @@
             }
 
             renderIndicators() {
+                if (!this.showMovingAverage) return;
                 const maData = this.calculateMovingAverage(5);
+                const width = this.canvas.offsetWidth;
+                const chartHeight = this.canvas.offsetHeight - 30;
+                const candleWidth = this.options.candleWidth * this.view.scaleX;
+                const spacing = candleWidth / 4;
+
                 this.ctx.strokeStyle = '#0000ff';
                 this.ctx.beginPath();
                 maData.forEach((ma, i) => {
                     if (ma === null) return;
-                    const x = (i * (this.options.candleWidth + this.options.candleWidth / 4) + this.view.offsetX) * this.view.scaleX;
-                    const y = this.priceToY(ma, this.canvas.offsetHeight - 30);
+                    const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
+                    if (x < -candleWidth || x > width) return;
+                    const y = this.priceToY(ma, chartHeight);
                     if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
                     else this.ctx.lineTo(x, y);
                 });
@@ -290,23 +380,24 @@
             }
 
             renderCrosshair() {
-                if (!this.crosshair) return;
+                if (!this.showCrosshair || !this.crosshair) return;
                 const { x, y } = this.crosshair;
                 const width = this.canvas.offsetWidth;
-                const height = this.canvas.offsetHeight - 30;
+                const chartHeight = this.canvas.offsetHeight - 30;
 
                 this.ctx.strokeStyle = '#666';
                 this.ctx.setLineDash([5, 5]);
                 this.ctx.beginPath();
                 this.ctx.moveTo(x, 0);
-                this.ctx.lineTo(x, height);
+                this.ctx.lineTo(x, chartHeight);
                 this.ctx.moveTo(0, y);
-                this.ctx.lineTo(width - 50, y);
+                this.ctx.lineTo(width - 60, y);
                 this.ctx.stroke();
                 this.ctx.setLineDash([]);
 
-                const price = this.yToPrice(y, height);
+                const price = this.yToPrice(y, chartHeight);
                 const candleIndex = Math.round((x - this.view.offsetX) / ((this.options.candleWidth + this.options.candleWidth / 4) * this.view.scaleX));
+                if (candleIndex < 0 || candleIndex >= this.dataManager.data.length) return;
                 const time = this.dataManager.data[candleIndex]?.time || '';
 
                 this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
@@ -315,16 +406,6 @@
                 this.ctx.font = '12px Arial';
                 this.ctx.fillText(`Price: ${price.toFixed(2)}`, x + 15, y - 15);
                 this.ctx.fillText(`Time: ${this.formatDate(time)}`, x + 15, y);
-            }
-
-            renderLines() {
-                this.ctx.strokeStyle = '#ff9900';
-                this.lines.forEach(line => {
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(line.start.x, line.start.y);
-                    this.ctx.lineTo(line.end.x, line.end.y);
-                    this.ctx.stroke();
-                });
             }
 
             renderGrid() {
@@ -338,22 +419,20 @@
                 this.ctx.strokeStyle = this.options.gridColor;
                 this.ctx.lineWidth = 1;
 
-                // Horizontal grid lines (price)
                 const priceSteps = 5;
                 for (let i = 0; i <= priceSteps; i++) {
                     const y = (chartHeight * i) / priceSteps;
                     this.ctx.beginPath();
                     this.ctx.moveTo(0, chartHeight - y);
-                    this.ctx.lineTo(width - 50, chartHeight - y);
+                    this.ctx.lineTo(width - 60, chartHeight - y);
                     this.ctx.stroke();
                 }
 
-                // Vertical grid lines (time)
                 const labelInterval = Math.max(1, Math.floor(100 / (candleWidth + spacing)));
                 this.dataManager.data.forEach((candle, i) => {
                     if (i % labelInterval === 0) {
                         const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
-                        if (x >= 0 && x <= width - 50) {
+                        if (x >= 0 && x <= width - 60) {
                             this.ctx.beginPath();
                             this.ctx.moveTo(x, 0);
                             this.ctx.lineTo(x, chartHeight);
@@ -407,11 +486,12 @@
                 });
 
                 this.renderIndicators();
+                this.renderCrosshair();
 
                 this.ctx.strokeStyle = this.options.axisColor;
                 this.ctx.beginPath();
-                this.ctx.moveTo(width - 50, 0);
-                this.ctx.lineTo(width - 50, chartHeight);
+                this.ctx.moveTo(width - 60, 0);
+                this.ctx.lineTo(width - 60, chartHeight);
                 this.ctx.stroke();
 
                 this.ctx.fillStyle = this.options.axisColor;
@@ -420,45 +500,57 @@
                 for (let i = 0; i <= priceSteps; i++) {
                     const y = (chartHeight * i) / priceSteps;
                     const price = this.yToPrice(y, chartHeight);
-                    this.ctx.fillText(price.toFixed(2), width - 45, chartHeight - y);
+                    this.ctx.fillText(price.toFixed(2), width - 55, chartHeight - y);
                 }
 
                 this.ctx.beginPath();
                 this.ctx.moveTo(0, chartHeight);
-                this.ctx.lineTo(width - 50, chartHeight);
+                this.ctx.lineTo(width - 60, chartHeight);
                 this.ctx.stroke();
 
                 const labelInterval = Math.max(1, Math.floor(100 / (candleWidth + spacing)));
                 this.dataManager.data.forEach((candle, i) => {
                     if (i % labelInterval === 0) {
                         const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
-                        if (x >= 0 && x <= width - 50) {
+                        if (x >= 0 && x <= width - 60) {
                             this.ctx.fillText(this.formatDate(candle.time), x, chartHeight + 20);
                         }
                     }
                 });
-
-                this.renderLines();
-                this.renderCrosshair();
             }
         }
 
-        const sampleData = [
-            { time: '2025-05-01', open: 100, high: 110, low: 95, close: 105 },
-            { time: '2025-05-02', open: 105, high: 115, low: 100, close: 112 },
-            { time: '2025-05-03', open: 112, high: 120, low: 108, close: 110 },
-            { time: '2025-05-04', open: 110, high: 115, low: 105, close: 108 },
-            { time: '2025-05-05', open: 108, high: 112, low: 102, close: 111 },
-            { time: '2025-05-06', open: 111, high: 118, low: 109, close: 115 },
-            { time: '2025-05-07', open: 115, high: 122, low: 113, close: 120 },
-            { time: '2025-05-08', open: 120, high: 125, low: 118, close: 123 },
-            { time: '2025-05-09', open: 123, high: 130, low: 121, close: 128 },
-            { time: '2025-05-10', open: 128, high: 135, low: 125, close: 130 },
+        const btcUsdData = [
+            { time: "2025-01-01", open: 93811.12, high: 95000.00, low: 93017.83, close: 94000.00 },
+            { time: "2025-01-07", open: 94000.00, high: 96000.00, low: 93500.00, close: 95500.00 },
+            { time: "2025-01-14", open: 95500.00, high: 97000.00, low: 95000.00, close: 96500.00 },
+            { time: "2025-01-21", open: 96500.00, high: 105104.85, low: 96000.00, close: 103000.00 },
+            { time: "2025-01-28", open: 103000.00, high: 104500.00, low: 102000.00, close: 104030.97 },
+            { time: "2025-02-04", open: 104030.97, high: 101987.25, low: 100000.00, close: 100500.00 },
+            { time: "2025-02-11", open: 100500.00, high: 101000.00, low: 95000.00, close: 96000.00 },
+            { time: "2025-02-18", open: 96000.00, high: 97000.00, low: 90000.00, close: 91000.00 },
+            { time: "2025-02-25", open: 91000.00, high: 92000.00, low: 81975.61, close: 81975.61 },
+            { time: "2025-03-04", open: 81975.61, high: 85000.00, low: 80974.66, close: 83000.00 },
+            { time: "2025-03-11", open: 83000.00, high: 87000.00, low: 82000.00, close: 85000.00 },
+            { time: "2025-03-18", open: 85000.00, high: 90000.00, low: 84000.00, close: 87000.00 },
+            { time: "2025-03-25", open: 87000.00, high: 90867.72, low: 86000.00, close: 82381.03 },
+            { time: "2025-04-01", open: 82381.03, high: 85000.00, low: 77771.33, close: 83000.00 },
+            { time: "2025-04-08", open: 83000.00, high: 87000.00, low: 82000.00, close: 86000.00 },
+            { time: "2025-04-15", open: 86000.00, high: 90000.00, low: 85000.00, close: 89000.00 },
+            { time: "2025-04-22", open: 89000.00, high: 93000.00, low: 88000.00, close: 92000.00 },
+            { time: "2025-04-29", open: 92000.00, high: 95029.76, low: 91000.00, close: 94226.83 },
+            { time: "2025-05-06", open: 94226.83, high: 96000.00, low: 94389.40, close: 95000.00 },
+            { time: "2025-05-13", open: 95000.00, high: 100000.00, low: 95000.00, close: 99000.00 },
+            { time: "2025-05-20", open: 99000.00, high: 105000.00, low: 98000.00, close: 104000.00 },
+            { time: "2025-05-22", open: 104000.00, high: 111891.30, low: 103500.00, close: 111529.83 },
+            { time: "2025-05-27", open: 111529.83, high: 111529.83, low: 108000.00, close: 109000.00 },
+            { time: "2025-06-03", open: 109000.00, high: 110000.00, low: 105000.00, close: 106000.00 },
+            { time: "2025-06-06", open: 106000.00, high: 107000.00, low: 104000.00, close: 104341.62 }
         ];
 
         const canvas = document.getElementById('chart');
         const chart = new Chart(canvas, {
-            data: sampleData,
+            data: btcUsdData,
             candleWidth: 10,
             upColor: '#F08852',
             downColor: '#6D96E7',
@@ -468,7 +560,8 @@
         });
 
         // Example: Load CSV data dynamically
-        // chart.dataManager.loadDataFromCSV('data.csv');
+        // chart.dataManager.loadDataFromCSV('data/btc-usd.csv');
     </script>
 </body>
+
 </html>
