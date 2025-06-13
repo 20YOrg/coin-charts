@@ -25,7 +25,7 @@
         #controls {
             position: absolute;
             top: 10px;
-            right: 90px;
+            right: 60px;
             z-index: 10;
         }
 
@@ -190,6 +190,8 @@
                 this.crosshair = null;
                 this.showCrosshair = true;
                 this.showMovingAverage = true;
+                this.minScaleX = 0.5; // Min zoom (candles ~5px)
+                this.maxScaleX = 5;   // Max zoom (candles ~50px)
 
                 this.resize();
                 this.initEvents();
@@ -213,7 +215,7 @@
                     const width = this.canvas.offsetWidth;
                     const zoomFactor = e.deltaY > 0 ? 0.97 : 1.03;
 
-                    if (mouseX > width - 90) {
+                    if (mouseX > width - 60) {
                         if (this.options.scaleType === 'logarithmic') {
                             const logRange = this.view.maxLogPrice - this.view.minLogPrice;
                             const newLogRange = Math.max(logRange / zoomFactor, 0.01);
@@ -233,6 +235,7 @@
                         }
                     } else {
                         this.view.scaleX *= zoomFactor;
+                        this.view.scaleX = Math.max(this.minScaleX, Math.min(this.maxScaleX, this.view.scaleX));
                     }
                     this.render();
                 });
@@ -363,14 +366,14 @@
                 const width = this.canvas.offsetWidth;
                 const chartHeight = this.canvas.offsetHeight - 30;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const spacing = candleWidth / 4;
+                const spacing = 2;
 
                 this.ctx.strokeStyle = '#0000ff';
                 this.ctx.beginPath();
                 maData.forEach((ma, i) => {
                     if (ma === null) return;
                     const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
-                    if (x < -candleWidth || x > width - 90) return;
+                    if (x < -candleWidth || x > width) return;
                     const y = this.priceToY(ma, chartHeight);
                     if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
                     else this.ctx.lineTo(x, y);
@@ -390,12 +393,12 @@
                 this.ctx.moveTo(x, 0);
                 this.ctx.lineTo(x, chartHeight);
                 this.ctx.moveTo(0, y);
-                this.ctx.lineTo(width - 90, y);
+                this.ctx.lineTo(width - 60, y);
                 this.ctx.stroke();
                 this.ctx.setLineDash([]);
 
                 const price = this.yToPrice(y, chartHeight);
-                const candleIndex = Math.round((x - this.view.offsetX) / ((this.options.candleWidth + this.options.candleWidth / 4) * this.view.scaleX));
+                const candleIndex = Math.round((x - this.view.offsetX) / ((this.options.candleWidth * this.view.scaleX + 2) * this.view.scaleX));
                 if (candleIndex < 0 || candleIndex >= this.dataManager.data.length) return;
                 const time = this.dataManager.data[candleIndex]?.time || '';
 
@@ -413,32 +416,28 @@
                 const axisMargin = 30;
                 const chartHeight = height - axisMargin;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const spacing = candleWidth / 4;
+                const spacing = 2;
 
                 this.ctx.strokeStyle = this.options.gridColor;
                 this.ctx.lineWidth = 1;
 
                 const priceSteps = 5;
-                const labelMargin = 30; // Top and bottom margin for labels
                 for (let i = 0; i <= priceSteps; i++) {
-                    const y = labelMargin + ((chartHeight - 2 * labelMargin) * i) / priceSteps;
+                    const y = (chartHeight * i) / priceSteps;
                     this.ctx.beginPath();
                     this.ctx.moveTo(0, chartHeight - y);
-                    this.ctx.lineTo(width - 90, chartHeight - y);
+                    this.ctx.lineTo(width - 60, chartHeight - y);
                     this.ctx.stroke();
                 }
 
                 const labelInterval = Math.max(1, Math.floor(100 / (candleWidth + spacing)));
-                this.ctx.font = '12px Arial';
-                const textWidth = this.ctx.measureText('2025-01-01').width;
-                const textCenterOffset = 20 + (textWidth / 2);
                 this.dataManager.data.forEach((candle, i) => {
                     if (i % labelInterval === 0) {
                         const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
-                        if (x >= 0 && x <= width - 90) {
+                        if (x >= 0 && x <= width - 60) {
                             this.ctx.beginPath();
-                            this.ctx.moveTo(x + textCenterOffset, 0);
-                            this.ctx.lineTo(x + textCenterOffset, chartHeight - labelMargin);
+                            this.ctx.moveTo(x, 0);
+                            this.ctx.lineTo(x, chartHeight);
                             this.ctx.stroke();
                         }
                     }
@@ -458,17 +457,17 @@
                 const axisMargin = 30;
                 const chartHeight = height - axisMargin;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const spacing = candleWidth / 4;
+                const spacing = 2;
 
                 this.renderGrid();
 
                 const startIndex = Math.max(0, Math.floor(-this.view.offsetX / (candleWidth + spacing)));
-                const endIndex = Math.min(this.dataManager.data.length, Math.ceil((width - 90 - this.view.offsetX) / (candleWidth + spacing)));
+                const endIndex = Math.min(this.dataManager.data.length, Math.ceil((width - this.view.offsetX) / (candleWidth + spacing)));
 
                 this.dataManager.data.slice(startIndex, endIndex).forEach((candle, i) => {
                     const trueIndex = startIndex + i;
                     const x = (trueIndex * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
-                    if (x < -candleWidth || x > width - 90) return;
+                    if (x < -candleWidth || x > width) return;
 
                     const isUp = candle.close >= candle.open;
                     this.ctx.fillStyle = isUp ? this.options.upColor : this.options.downColor;
@@ -491,22 +490,32 @@
                 this.renderIndicators();
                 this.renderCrosshair();
 
+                this.ctx.strokeStyle = this.options.axisColor;
+                this.ctx.beginPath();
+                this.ctx.moveTo(width - 60, 0);
+                this.ctx.lineTo(width - 60, chartHeight);
+                this.ctx.stroke();
+
                 this.ctx.fillStyle = this.options.axisColor;
                 this.ctx.font = '12px Arial';
                 const priceSteps = 5;
-                const labelMargin = 30; // Top and bottom margin for labels
                 for (let i = 0; i <= priceSteps; i++) {
-                    const y = labelMargin + ((chartHeight - 2 * labelMargin) * i) / priceSteps;
-                    const price = this.view.minPrice + (i / priceSteps) * (this.view.maxPrice - this.view.minPrice);
-                    this.ctx.fillText(price.toFixed(2), width - 75, chartHeight - y + 4);
+                    const y = (chartHeight * i) / priceSteps;
+                    const price = this.yToPrice(y, chartHeight);
+                    this.ctx.fillText(price.toFixed(2), width - 55, chartHeight - y);
                 }
+
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, chartHeight);
+                this.ctx.lineTo(width - 60, chartHeight);
+                this.ctx.stroke();
 
                 const labelInterval = Math.max(1, Math.floor(100 / (candleWidth + spacing)));
                 this.dataManager.data.forEach((candle, i) => {
                     if (i % labelInterval === 0) {
                         const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
-                        if (x >= 0 && x <= width - 90) {
-                            this.ctx.fillText(this.formatDate(candle.time), x + 20, chartHeight + 10);
+                        if (x >= 0 && x <= width - 60) {
+                            this.ctx.fillText(this.formatDate(candle.time), x, chartHeight + 20);
                         }
                     }
                 });
@@ -551,6 +560,9 @@
             axisColor: '#333333',
             scaleType: 'linear',
         });
+
+        // Example: Load CSV data dynamically
+        // chart.dataManager.loadDataFromCSV('data/btc-usd.csv');
     </script>
 </body>
 
