@@ -236,15 +236,15 @@
                     } else {
                         const oldScaleX = this.view.scaleX;
                         const oldCandleWidth = this.options.candleWidth * oldScaleX;
-                        const oldScaledSpacing = 2 * oldScaleX;
+                        const oldSpacing = 2; // Fixed 2px gap
                         const lastIndex = this.dataManager.data.length - 1;
-                        const currentX = (lastIndex * (oldCandleWidth + oldScaledSpacing) + this.view.offsetX) + oldCandleWidth / 2;
+                        const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + this.view.offsetX) + oldCandleWidth / 2;
 
                         this.view.scaleX *= zoomFactor;
                         this.view.scaleX = Math.max(this.minScaleX, Math.min(this.maxScaleX, this.view.scaleX));
                         const newCandleWidth = this.options.candleWidth * this.view.scaleX;
-                        const newScaledSpacing = 2 * this.view.scaleX;
-                        this.view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newScaledSpacing);
+                        const newSpacing = 2; // Fixed 2px gap
+                        this.view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
                     }
                     this.render();
                 });
@@ -384,13 +384,13 @@
                 const width = this.canvas.offsetWidth;
                 const chartHeight = this.canvas.offsetHeight - 30;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const scaledSpacing = 2 * this.view.scaleX;
+                const spacing = 2; // Fixed 2px gap
 
                 this.ctx.strokeStyle = '#0000ff';
                 this.ctx.beginPath();
                 maData.forEach((ma, i) => {
                     if (ma === null) return;
-                    const x = (i * (candleWidth + scaledSpacing) + this.view.offsetX);
+                    const x = (i * (candleWidth + spacing) + this.view.offsetX);
                     if (x < -candleWidth || x > width - 90) return;
                     const y = this.priceToY(ma, chartHeight);
                     if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
@@ -417,8 +417,8 @@
 
                 const price = this.yToPrice(y, chartHeight);
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const scaledSpacing = 2 * this.view.scaleX;
-                const candleIndex = Math.round((x - this.view.offsetX) / (candleWidth + scaledSpacing));
+                const spacing = 2; // Fixed 2px gap
+                const candleIndex = Math.round((x - this.view.offsetX) / (candleWidth + spacing));
                 if (candleIndex < 0 || candleIndex >= this.dataManager.data.length) return;
                 const time = this.dataManager.data[candleIndex]?.time || '';
 
@@ -436,7 +436,7 @@
                 const axisMargin = 30;
                 const chartHeight = height - axisMargin;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const scaledSpacing = 2 * this.view.scaleX;
+                const spacing = 2; // Fixed 2px gap
 
                 this.ctx.strokeStyle = this.options.gridColor;
                 this.ctx.lineWidth = 1;
@@ -451,13 +451,13 @@
                     this.ctx.stroke();
                 }
 
-                const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + scaledSpacing)));
+                const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
                 this.ctx.font = '12px Arial';
                 const textWidth = this.ctx.measureText('2025-01-01').width;
                 const textCenterOffset = 20 + (textWidth / 2);
                 this.dataManager.data.forEach((candle, i) => {
                     if (i % labelInterval === 0) {
-                        const x = (i * (candleWidth + scaledSpacing) + this.view.offsetX);
+                        const x = (i * (candleWidth + spacing) + this.view.offsetX);
                         if (x >= 0 && x <= width - 90) {
                             this.ctx.beginPath();
                             this.ctx.moveTo(x + textCenterOffset, 0);
@@ -481,16 +481,16 @@
                 const axisMargin = 30;
                 const chartHeight = height - axisMargin;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const scaledSpacing = 2 * this.view.scaleX;
+                const spacing = 2; // Fixed 2px gap
 
                 this.renderGrid();
 
-                const startIndex = Math.max(0, Math.floor(-this.view.offsetX / (candleWidth + scaledSpacing)));
-                const endIndex = Math.min(this.dataManager.data.length, Math.ceil((width - 90 - this.view.offsetX) / (candleWidth + scaledSpacing)));
+                const startIndex = Math.max(0, Math.floor(-this.view.offsetX / (candleWidth + spacing)));
+                const endIndex = Math.min(this.dataManager.data.length, Math.ceil((width - 90 - this.view.offsetX) / (candleWidth + spacing)));
 
                 this.dataManager.data.slice(startIndex, endIndex).forEach((candle, i) => {
                     const trueIndex = startIndex + i;
-                    const x = (trueIndex * (candleWidth + scaledSpacing) + this.view.offsetX);
+                    const x = (trueIndex * (candleWidth + spacing) + this.view.offsetX);
                     if (x < -candleWidth || x > width - 90) return;
 
                     const isUp = candle.close >= candle.open;
@@ -524,10 +524,10 @@
                     this.ctx.fillText(price.toFixed(2), width - 75, chartHeight - y + 4);
                 }
 
-                const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + scaledSpacing)));
+                const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
                 this.dataManager.data.forEach((candle, i) => {
                     if (i % labelInterval === 0) {
-                        const x = (i * (candleWidth + scaledSpacing) + this.view.offsetX);
+                        const x = (i * (candleWidth + spacing) + this.view.offsetX);
                         if (x >= 0 && x <= width - 90) {
                             this.ctx.fillText(this.formatDate(candle.time), x + 20, chartHeight + 10);
                         }
