@@ -85,7 +85,8 @@
         <div id="tool-menu">
             <button id="tool-crosshair" title="Toggle Crosshair">✛</button>
             <button id="tool-ma" title="Toggle Moving Average">📈</button>
-            <button id="tool-line" title="Draw Line">↗</button>
+            <button id="tool-line" title="Draw Finite Line">↗</button>
+            <button id="tool-infinite-line" title="Draw Infinite Line">↔</button>
             <button id="tool-reset" title="Reset View">↻</button>
         </div>
     </div>
@@ -193,6 +194,7 @@
                 this.showCrosshair = true;
                 this.showMovingAverage = true;
                 this.isDrawingLine = false;
+                this.isDrawingInfiniteLine = false;
                 this.lineStartPoint = null;
                 this.lines = [];
                 this.selectedLineIndex = -1;
@@ -203,7 +205,6 @@
                 this.resize();
                 this.initEvents();
                 this.dataManager.setData(options.data || []);
-                // Initialize offsetX to position last candle on the right with 20px buffer
                 const width = this.canvas.offsetWidth;
                 const lastIndex = this.dataManager.data.length - 1;
                 this.view.offsetX = (width - 90 - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + 2));
@@ -215,14 +216,12 @@
                 this.canvas.width = this.canvas.offsetWidth * dpr;
                 this.canvas.height = this.canvas.offsetHeight * dpr;
                 this.ctx.scale(dpr, dpr);
-                // Recalculate offsetX on resize to keep last candle on the right with 20px buffer
                 const width = this.canvas.offsetWidth;
                 const lastIndex = this.dataManager.data.length - 1;
                 this.view.offsetX = (width - 90 - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + 2));
                 this.render();
             }
 
-            // Calculate distance from point (px, py) to line segment (x1, y1) to (x2, y2)
             distanceToLineSegment(px, py, x1, y1, x2, y2) {
                 const dx = x2 - x1;
                 const dy = y2 - y1;
@@ -235,25 +234,71 @@
                 return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
             }
 
-            // Calculate line parameters (slope m, intercept b) for linear or logarithmic scale
             getLineParameters(line) {
-                const x1 = line.start.x;
-                const y1 = line.start.y;
-                const x2 = line.end.x;
-                const y2 = line.end.y;
-                let m, b;
-                if (line.scaleType === 'logarithmic') {
-                    // In log scale, y is log10(price)
-                    const logY1 = Math.log10(Math.max(y1, 0.01));
-                    const logY2 = Math.log10(Math.max(y2, 0.01));
-                    m = (logY2 - logY1) / (x2 - x1 || 0.0001);
-                    b = logY1 - m * x1;
+                if (line.type === 'infinite') {
+                    const x1 = line.point1.x;
+                    const y1 = line.point1.y;
+                    const x2 = line.point2.x;
+                    const y2 = line.point2.y;
+                    let m, b;
+                    if (line.scaleType === 'logarithmic') {
+                        const logY1 = Math.log10(Math.max(y1, 0.01));
+                        const logY2 = Math.log10(Math.max(y2, 0.01));
+                        m = (logY2 - logY1) / (x2 - x1 || 0.0001);
+                        b = logY1 - m * x1;
+                    } else {
+                        m = (y2 - y1) / (x2 - x1 || 0.0001);
+                        b = y1 - m * x1;
+                    }
+                    return { m, b };
                 } else {
-                    // In linear scale, y is price
-                    m = (y2 - y1) / (x2 - x1 || 0.0001);
-                    b = y1 - m * x1;
+                    const x1 = line.start.x;
+                    const y1 = line.start.y;
+                    const x2 = line.end.x;
+                    const y2 = line.end.y;
+                    let m, b;
+                    if (line.scaleType === 'logarithmic') {
+                        const logY1 = Math.log10(Math.max(y1, 0.01));
+                        const logY2 = Math.log10(Math.max(y2, 0.01));
+                        m = (logY2 - logY1) / (x2 - x1 || 0.0001);
+                        b = logY1 - m * x1;
+                    } else {
+                        m = (y2 - y1) / (x2 - x1 || 0.0001);
+                        b = y1 - m * x1;
+                    }
+                    return { m, b };
                 }
-                return { m, b };
+            }
+
+            getLinePoints(line, width, height, candleWidth, spacing, numPoints) {
+                const points = [];
+                let xMin, xMax;
+                if (line.type === 'infinite') {
+                    xMin = Math.max(0, -this.view.offsetX / (candleWidth + spacing) - 10);
+                    xMax = Math.min(this.dataManager.data.length - 1, (width - 90 - this.view.offsetX) / (candleWidth + spacing) + 10);
+                } else {
+                    xMin = Math.min(line.start.x, line.end.x);
+                    xMax = Math.max(line.start.x, line.end.x);
+                }
+                const { m, b } = this.getLineParameters(line);
+                const dx = (xMax - xMin) / (numPoints - 1) || 0.0001;
+
+                for (let i = 0; i < numPoints; i++) {
+                    const x = xMin + i * dx;
+                    let price;
+                    if (line.scaleType === 'logarithmic') {
+                        price = Math.pow(10, m * x + b);
+                    } else {
+                        price = m * x + b;
+                    }
+                    price = Math.max(price, 0.01);
+                    const canvasX = x * (candleWidth + spacing) + this.view.offsetX;
+                    const canvasY = this.priceToY(price, height);
+                    if (canvasX >= -candleWidth && canvasX <= width - 90 && isFinite(canvasY)) {
+                        points.push({ x: canvasX, y: canvasY });
+                    }
+                }
+                return points;
             }
 
             initEvents() {
@@ -309,7 +354,6 @@
                         if (mouseX <= width - 90 && mouseY <= height) {
                             const candleWidth = this.options.candleWidth * this.view.scaleX;
                             const spacing = 2;
-                            // Check for line selection
                             let minDistance = Infinity;
                             let closestLineIndex = -1;
                             this.lines.forEach((line, index) => {
@@ -327,8 +371,7 @@
                                 }
                             });
 
-                            if (closestLineIndex !== -1 && !this.isDrawingLine) {
-                                // Select and prepare to move line
+                            if (closestLineIndex !== -1 && !this.isDrawingLine && !this.isDrawingInfiniteLine) {
                                 this.selectedLineIndex = closestLineIndex;
                                 this.isMovingLine = true;
                                 this.lastMouseX = mouseX;
@@ -339,13 +382,13 @@
                             }
 
                             if (this.isDrawingLine) {
-                                // Draw new line
                                 const chartX = (mouseX - this.view.offsetX) / (this.options.candleWidth * this.view.scaleX + 2);
                                 const chartY = this.yToPrice(mouseY, height);
                                 if (this.lineStartPoint === null) {
                                     this.lineStartPoint = { x: chartX, y: chartY };
                                 } else {
                                     this.lines.push({
+                                        type: 'finite',
                                         start: this.lineStartPoint,
                                         end: { x: chartX, y: chartY },
                                         scaleType: this.options.scaleType
@@ -353,15 +396,28 @@
                                     this.lineStartPoint = null;
                                     this.render();
                                 }
+                            } else if (this.isDrawingInfiniteLine) {
+                                const chartX = (mouseX - this.view.offsetX) / (this.options.candleWidth * this.view.scaleX + 2);
+                                const chartY = this.yToPrice(mouseY, height);
+                                if (this.lineStartPoint === null) {
+                                    this.lineStartPoint = { x: chartX, y: chartY };
+                                } else {
+                                    this.lines.push({
+                                        type: 'infinite',
+                                        point1: this.lineStartPoint,
+                                        point2: { x: chartX, y: chartY },
+                                        scaleType: this.options.scaleType
+                                    });
+                                    this.lineStartPoint = null;
+                                    this.render();
+                                }
                             } else {
-                                // Deselect line and start panning
                                 this.selectedLineIndex = -1;
                                 this.isDragging = true;
                                 this.lastMouseX = e.clientX;
                                 this.render();
                             }
                         } else {
-                            // Start panning outside chart area
                             this.selectedLineIndex = -1;
                             this.isDragging = true;
                             this.lastMouseX = e.clientX;
@@ -391,21 +447,27 @@
                         const dx = (mouseX - this.lastMouseX) / (candleWidth + spacing);
                         const dy = this.yToPrice(mouseY, chartHeight) - this.yToPrice(this.lastMouseY, chartHeight);
                         const line = this.lines[this.selectedLineIndex];
-                        line.start.x += dx;
-                        line.start.y += dy;
-                        line.end.x += dx;
-                        line.end.y += dy;
+                        if (line.type === 'finite') {
+                            line.start.x += dx;
+                            line.start.y += dy;
+                            line.end.x += dx;
+                            line.end.y += dy;
+                        } else {
+                            line.point1.x += dx;
+                            line.point1.y += dy;
+                            line.point2.x += dx;
+                            line.point2.y += dy;
+                        }
                         this.lastMouseX = mouseX;
                         this.lastMouseY = mouseY;
                         this.canvas.style.cursor = 'pointer';
                         this.render();
-                    } else if (this.showCrosshair && !this.isDrawingLine) {
+                    } else if (this.showCrosshair && !this.isDrawingLine && !this.isDrawingInfiniteLine) {
                         if (mouseX > width - 90 || mouseY > chartHeight) {
                             this.crosshair = null;
                             this.canvas.style.cursor = 'default';
                         } else {
                             this.crosshair = { x: mouseX, y: mouseY };
-                            // Check for hover over line
                             const candleWidth = this.options.candleWidth * this.view.scaleX;
                             const spacing = 2;
                             let isNearLine = false;
@@ -458,10 +520,12 @@
                 crosshairButton.addEventListener('click', () => {
                     this.showCrosshair = !this.showCrosshair;
                     this.isDrawingLine = false;
+                    this.isDrawingInfiniteLine = false;
                     this.lineStartPoint = null;
                     this.selectedLineIndex = -1;
                     crosshairButton.classList.toggle('active');
                     lineButton.classList.remove('active');
+                    infiniteLineButton.classList.remove('active');
                     this.render();
                 });
 
@@ -476,11 +540,26 @@
                 const lineButton = document.getElementById('tool-line');
                 lineButton.addEventListener('click', () => {
                     this.isDrawingLine = !this.isDrawingLine;
+                    this.isDrawingInfiniteLine = false;
                     this.showCrosshair = !this.isDrawingLine;
                     this.lineStartPoint = null;
                     this.selectedLineIndex = -1;
                     lineButton.classList.toggle('active');
                     crosshairButton.classList.toggle('active', !this.isDrawingLine);
+                    infiniteLineButton.classList.remove('active');
+                    this.render();
+                });
+
+                const infiniteLineButton = document.getElementById('tool-infinite-line');
+                infiniteLineButton.addEventListener('click', () => {
+                    this.isDrawingInfiniteLine = !this.isDrawingInfiniteLine;
+                    this.isDrawingLine = false;
+                    this.showCrosshair = !this.isDrawingInfiniteLine;
+                    this.lineStartPoint = null;
+                    this.selectedLineIndex = -1;
+                    infiniteLineButton.classList.toggle('active');
+                    crosshairButton.classList.toggle('active', !this.isDrawingInfiniteLine);
+                    lineButton.classList.remove('active');
                     this.render();
                 });
 
@@ -493,6 +572,7 @@
                     this.lines = [];
                     this.selectedLineIndex = -1;
                     this.isDrawingLine = false;
+                    this.isDrawingInfiniteLine = false;
                     this.lineStartPoint = null;
                     this.calculatePriceRange();
                     this.render();
@@ -528,13 +608,14 @@
             }
 
             yToPrice(y, height) {
+                y = Math.max(0, Math.min(height, y));
                 if (this.options.scaleType === 'logarithmic') {
                     const logRange = Math.max(this.view.maxLogPrice - this.view.minLogPrice, 0.01);
                     const logPrice = this.view.minLogPrice + (1 - y / height) * logRange;
-                    return Math.pow(10, logPrice);
+                    return Math.max(Math.pow(10, logPrice), 0.01);
                 } else {
                     const priceRange = Math.max(this.view.maxPrice - this.view.minPrice, 0.01);
-                    return this.view.minPrice + (1 - y / height) * priceRange;
+                    return Math.max(this.view.minPrice + (1 - y / height) * priceRange, 0.01);
                 }
             }
 
@@ -555,34 +636,6 @@
                     maData.push(sum / period);
                 }
                 return maData;
-            }
-
-            // Generate points for rendering a line (straight or curved)
-            getLinePoints(line, width, height, candleWidth, spacing, numPoints) {
-                const points = [];
-                const xMin = Math.min(line.start.x, line.end.x);
-                const xMax = Math.max(line.start.x, line.end.x);
-                const { m, b } = this.getLineParameters(line);
-                const dx = (xMax - xMin) / (numPoints - 1) || 0.0001;
-
-                for (let i = 0; i < numPoints; i++) {
-                    const x = xMin + i * dx;
-                    let price;
-                    if (line.scaleType === 'logarithmic') {
-                        // Logarithmic line: log10(price) = m * x + b
-                        price = Math.pow(10, m * x + b);
-                    } else {
-                        // Linear line: price = m * x + b
-                        price = m * x + b;
-                    }
-                    price = Math.max(price, 0.01); // Avoid negative or zero prices
-                    const canvasX = x * (candleWidth + spacing) + this.view.offsetX;
-                    const canvasY = this.priceToY(price, height);
-                    if (canvasX >= -candleWidth && canvasX <= width - 90) {
-                        points.push({ x: canvasX, y: canvasY });
-                    }
-                }
-                return points;
             }
 
             renderIndicators() {
@@ -607,7 +660,7 @@
             }
 
             renderCrosshair() {
-                if (!this.showCrosshair || !this.crosshair || this.isDrawingLine) return;
+                if (!this.showCrosshair || !this.crosshair || this.isDrawingLine || this.isDrawingInfiniteLine) return;
                 const { x, y } = this.crosshair;
                 const width = this.canvas.offsetWidth;
                 const chartHeight = this.canvas.offsetHeight - 30;
@@ -766,7 +819,6 @@
             }
         }
 
-        // Initialize chart after data is loaded
         if (typeof btcUsdData !== 'undefined') {
             const canvas = document.getElementById('chart');
             const chart = new Chart(canvas, {
