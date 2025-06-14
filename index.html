@@ -85,6 +85,7 @@
         <div id="tool-menu">
             <button id="tool-crosshair" title="Toggle Crosshair">✛</button>
             <button id="tool-ma" title="Toggle Moving Average">📈</button>
+            <button id="tool-line" title="Draw Line">↗</button>
             <button id="tool-reset" title="Reset View">↻</button>
         </div>
     </div>
@@ -190,6 +191,11 @@
                 this.crosshair = null;
                 this.showCrosshair = true;
                 this.showMovingAverage = true;
+                this.isDrawingLine = false;
+                this.lineStartPoint = null;
+                this.lines = [];
+                this.selectedLineIndex = -1;
+                this.isMovingLine = false;
                 this.minScaleX = 0.3; // Min zoom (candles ~3px)
                 this.maxScaleX = 30;  // Max zoom (candles ~300px)
 
@@ -213,6 +219,19 @@
                 const lastIndex = this.dataManager.data.length - 1;
                 this.view.offsetX = (width - 90 - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + 2));
                 this.render();
+            }
+
+            // Calculate distance from point (px, py) to line segment (x1, y1) to (x2, y2)
+            distanceToLineSegment(px, py, x1, y1, x2, y2) {
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const lengthSquared = dx * dx + dy * dy;
+                if (lengthSquared === 0) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+                let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+                t = Math.max(0, Math.min(1, t));
+                const projX = x1 + t * dx;
+                const projY = y1 + t * dy;
+                return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
             }
 
             initEvents() {
@@ -259,8 +278,69 @@
 
                 this.canvas.addEventListener('mousedown', (e) => {
                     if (e.button === 0) {
-                        this.isDragging = true;
-                        this.lastMouseX = e.clientX;
+                        const rect = this.canvas.getBoundingClientRect();
+                        const mouseX = e.clientX - rect.left;
+                        const mouseY = e.clientY - rect.top;
+                        const width = this.canvas.offsetWidth;
+                        const height = this.canvas.offsetHeight - 30;
+
+                        if (mouseX <= width - 90 && mouseY <= height) {
+                            const candleWidth = this.options.candleWidth * this.view.scaleX;
+                            const spacing = 2;
+                            // Check for line selection
+                            let minDistance = Infinity;
+                            let closestLineIndex = -1;
+                            this.lines.forEach((line, index) => {
+                                const startX = line.start.x * (candleWidth + spacing) + this.view.offsetX;
+                                const startY = this.priceToY(line.start.y, height);
+                                const endX = line.end.x * (candleWidth + spacing) + this.view.offsetX;
+                                const endY = this.priceToY(line.end.y, height);
+                                const distance = this.distanceToLineSegment(mouseX, mouseY, startX, startY, endX, endY);
+                                if (distance < minDistance && distance < 5) {
+                                    minDistance = distance;
+                                    closestLineIndex = index;
+                                }
+                            });
+
+                            if (closestLineIndex !== -1 && !this.isDrawingLine) {
+                                // Select and prepare to move line
+                                this.selectedLineIndex = closestLineIndex;
+                                this.isMovingLine = true;
+                                this.lastMouseX = mouseX;
+                                this.lastMouseY = mouseY;
+                                this.canvas.style.cursor = 'pointer';
+                                this.render();
+                                return;
+                            }
+
+                            if (this.isDrawingLine) {
+                                // Draw new line
+                                const chartX = (mouseX - this.view.offsetX) / (this.options.candleWidth * this.view.scaleX + 2);
+                                const chartY = this.yToPrice(mouseY, height);
+                                if (this.lineStartPoint === null) {
+                                    this.lineStartPoint = { x: chartX, y: chartY };
+                                } else {
+                                    this.lines.push({
+                                        start: this.lineStartPoint,
+                                        end: { x: chartX, y: chartY }
+                                    });
+                                    this.lineStartPoint = null;
+                                    this.render();
+                                }
+                            } else {
+                                // Deselect line and start panning
+                                this.selectedLineIndex = -1;
+                                this.isDragging = true;
+                                this.lastMouseX = e.clientX;
+                                this.render();
+                            }
+                        } else {
+                            // Start panning outside chart area
+                            this.selectedLineIndex = -1;
+                            this.isDragging = true;
+                            this.lastMouseX = e.clientX;
+                            this.render();
+                        }
                     }
                 });
 
@@ -277,20 +357,63 @@
                         const dx = e.clientX - this.lastMouseX;
                         this.view.offsetX += dx / this.view.scaleX;
                         this.lastMouseX = e.clientX;
+                        this.canvas.style.cursor = 'default';
                         this.render();
-                    } else if (this.showCrosshair) {
+                    } else if (this.isMovingLine && this.selectedLineIndex !== -1) {
+                        const candleWidth = this.options.candleWidth * this.view.scaleX;
+                        const spacing = 2;
+                        const dx = (mouseX - this.lastMouseX) / (candleWidth + spacing);
+                        const dy = this.yToPrice(mouseY, chartHeight) - this.yToPrice(this.lastMouseY, chartHeight);
+                        const line = this.lines[this.selectedLineIndex];
+                        line.start.x += dx;
+                        line.start.y += dy;
+                        line.end.x += dx;
+                        line.end.y += dy;
+                        this.lastMouseX = mouseX;
+                        this.lastMouseY = mouseY;
+                        this.canvas.style.cursor = 'pointer';
+                        this.render();
+                    } else if (this.showCrosshair && !this.isDrawingLine) {
                         if (mouseX > width - 90 || mouseY > chartHeight) {
                             this.crosshair = null;
+                            this.canvas.style.cursor = 'default';
                         } else {
                             this.crosshair = { x: mouseX, y: mouseY };
+                            // Check for hover over line
+                            const candleWidth = this.options.candleWidth * this.view.scaleX;
+                            const spacing = 2;
+                            let isNearLine = false;
+                            for (let line of this.lines) {
+                                const startX = line.start.x * (candleWidth + spacing) + this.view.offsetX;
+                                const startY = this.priceToY(line.start.y, chartHeight);
+                                const endX = line.end.x * (candleWidth + spacing) + this.view.offsetX;
+                                const endY = this.priceToY(line.end.y, chartHeight);
+                                const distance = this.distanceToLineSegment(mouseX, mouseY, startX, startY, endX, endY);
+                                if (distance < 5) {
+                                    isNearLine = true;
+                                    break;
+                                }
+                            }
+                            this.canvas.style.cursor = isNearLine ? 'pointer' : 'default';
                         }
                         this.render();
+                    } else {
+                        this.canvas.style.cursor = 'default';
                     }
                 });
 
                 this.canvas.addEventListener('mouseup', (e) => {
                     if (e.button === 0) {
                         this.isDragging = false;
+                        this.isMovingLine = false;
+                    }
+                });
+
+                document.addEventListener('keydown', (e) => {
+                    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedLineIndex !== -1) {
+                        this.lines.splice(this.selectedLineIndex, 1);
+                        this.selectedLineIndex = -1;
+                        this.render();
                     }
                 });
 
@@ -304,8 +427,11 @@
                 crosshairButton.classList.add('active');
                 crosshairButton.addEventListener('click', () => {
                     this.showCrosshair = !this.showCrosshair;
-                    this.crosshair = null;
+                    this.isDrawingLine = false;
+                    this.lineStartPoint = null;
+                    this.selectedLineIndex = -1;
                     crosshairButton.classList.toggle('active');
+                    lineButton.classList.remove('active');
                     this.render();
                 });
 
@@ -317,12 +443,27 @@
                     this.render();
                 });
 
+                const lineButton = document.getElementById('tool-line');
+                lineButton.addEventListener('click', () => {
+                    this.isDrawingLine = !this.isDrawingLine;
+                    this.showCrosshair = !this.isDrawingLine;
+                    this.lineStartPoint = null;
+                    this.selectedLineIndex = -1;
+                    lineButton.classList.toggle('active');
+                    crosshairButton.classList.toggle('active', !this.isDrawingLine);
+                    this.render();
+                });
+
                 const resetButton = document.getElementById('tool-reset');
                 resetButton.addEventListener('click', () => {
                     this.view.offsetX = (this.canvas.offsetWidth - 90 - 20) - ((this.dataManager.data.length - 1) * (this.options.candleWidth * 1 + 2));
                     this.view.scaleX = 1;
                     this.view.minPrice = 0;
                     this.view.maxPrice = 100;
+                    this.lines = [];
+                    this.selectedLineIndex = -1;
+                    this.isDrawingLine = false;
+                    this.lineStartPoint = null;
                     this.calculatePriceRange();
                     this.render();
                 });
@@ -401,14 +542,14 @@
                     const x = (i * (candleWidth + spacing) + this.view.offsetX);
                     if (x < -candleWidth || x > width - 90) return;
                     const y = this.priceToY(ma, chartHeight);
-                    if (i == 0 || maData[i - 1] == null) this.ctx.moveTo(x, y);
+                    if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
                     else this.ctx.lineTo(x, y);
                 });
                 this.ctx.stroke();
             }
 
             renderCrosshair() {
-                if (!this.showCrosshair || !this.crosshair) return;
+                if (!this.showCrosshair || !this.crosshair || this.isDrawingLine) return;
                 const { x, y } = this.crosshair;
                 const width = this.canvas.offsetWidth;
                 const chartHeight = this.canvas.offsetHeight - 30;
@@ -438,6 +579,29 @@
                 this.ctx.fillText(`Time: ${this.formatDate(time)}`, x + 15, y);
             }
 
+            renderLines() {
+                const width = this.canvas.offsetWidth;
+                const chartHeight = this.canvas.offsetHeight - 30;
+                const candleWidth = this.options.candleWidth * this.view.scaleX;
+                const spacing = 2;
+
+                this.lines.forEach((line, index) => {
+                    const isSelected = index === this.selectedLineIndex;
+                    this.ctx.strokeStyle = isSelected ? 'blue' : 'red';
+                    this.ctx.lineWidth = isSelected ? 4 : 2;
+                    const startX = line.start.x * (candleWidth + spacing) + this.view.offsetX;
+                    const startY = this.priceToY(line.start.y, chartHeight);
+                    const endX = line.end.x * (candleWidth + spacing) + this.view.offsetX;
+                    const endY = this.priceToY(line.end.y, chartHeight);
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(startX, startY);
+                    this.ctx.lineTo(endX, endY);
+                    this.ctx.stroke();
+                });
+                this.ctx.lineWidth = 1;
+            }
+
             renderGrid() {
                 const width = this.canvas.offsetWidth;
                 const height = this.canvas.offsetHeight;
@@ -464,7 +628,7 @@
                 const textWidth = this.ctx.measureText('2025-01-01').width;
                 const textCenterOffset = 20 + (textWidth / 2);
                 this.dataManager.data.forEach((candle, i) => {
-                    if (i % labelInterval == 0) {
+                    if (i % labelInterval === 0) {
                         const x = (i * (candleWidth + spacing) + this.view.offsetX);
                         if (x >= 0 && x <= width - 90) {
                             this.ctx.beginPath();
@@ -520,6 +684,7 @@
                 });
 
                 this.renderIndicators();
+                this.renderLines();
                 this.renderCrosshair();
 
                 this.ctx.fillStyle = this.options.axisColor;
@@ -534,7 +699,7 @@
 
                 const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
                 this.dataManager.data.forEach((candle, i) => {
-                    if (i % labelInterval == 0) {
+                    if (i % labelInterval === 0) {
                         const x = (i * (candleWidth + spacing) + this.view.offsetX);
                         if (x >= 0 && x <= width - 90) {
                             this.ctx.fillText(this.formatDate(candle.time), x + 20, chartHeight + 10);
