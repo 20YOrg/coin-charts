@@ -196,6 +196,10 @@
                 this.resize();
                 this.initEvents();
                 this.dataManager.setData(options.data || []);
+                // Initialize offsetX to position last candle on the right with 20px buffer
+                const width = this.canvas.offsetWidth;
+                const lastIndex = this.dataManager.data.length - 1;
+                this.view.offsetX = (width - 90 - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + 2));
                 this.render();
             }
 
@@ -204,6 +208,10 @@
                 this.canvas.width = this.canvas.offsetWidth * dpr;
                 this.canvas.height = this.canvas.offsetHeight * dpr;
                 this.ctx.scale(dpr, dpr);
+                // Recalculate offsetX on resize to keep last candle on the right with 20px buffer
+                const width = this.canvas.offsetWidth;
+                const lastIndex = this.dataManager.data.length - 1;
+                this.view.offsetX = (width - 90 - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + 2));
                 this.render();
             }
 
@@ -236,14 +244,14 @@
                     } else {
                         const oldScaleX = this.view.scaleX;
                         const oldCandleWidth = this.options.candleWidth * oldScaleX;
-                        const oldSpacing = 2; // Fixed 2px gap
+                        const oldSpacing = 2;
                         const lastIndex = this.dataManager.data.length - 1;
                         const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + this.view.offsetX) + oldCandleWidth / 2;
 
                         this.view.scaleX *= zoomFactor;
                         this.view.scaleX = Math.max(this.minScaleX, Math.min(this.maxScaleX, this.view.scaleX));
                         const newCandleWidth = this.options.candleWidth * this.view.scaleX;
-                        const newSpacing = 2; // Fixed 2px gap
+                        const newSpacing = 2;
                         this.view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
                     }
                     this.render();
@@ -311,7 +319,7 @@
 
                 const resetButton = document.getElementById('tool-reset');
                 resetButton.addEventListener('click', () => {
-                    this.view.offsetX = 0;
+                    this.view.offsetX = (this.canvas.offsetWidth - 90 - 20) - ((this.dataManager.data.length - 1) * (this.options.candleWidth * 1 + 2));
                     this.view.scaleX = 1;
                     this.view.minPrice = 0;
                     this.view.maxPrice = 100;
@@ -384,7 +392,7 @@
                 const width = this.canvas.offsetWidth;
                 const chartHeight = this.canvas.offsetHeight - 30;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const spacing = 2; // Fixed 2px gap
+                const spacing = 2;
 
                 this.ctx.strokeStyle = '#0000ff';
                 this.ctx.beginPath();
@@ -393,7 +401,7 @@
                     const x = (i * (candleWidth + spacing) + this.view.offsetX);
                     if (x < -candleWidth || x > width - 90) return;
                     const y = this.priceToY(ma, chartHeight);
-                    if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
+                    if (i == 0 || maData[i - 1] == null) this.ctx.moveTo(x, y);
                     else this.ctx.lineTo(x, y);
                 });
                 this.ctx.stroke();
@@ -417,7 +425,7 @@
 
                 const price = this.yToPrice(y, chartHeight);
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const spacing = 2; // Fixed 2px gap
+                const spacing = 2;
                 const candleIndex = Math.round((x - this.view.offsetX) / (candleWidth + spacing));
                 if (candleIndex < 0 || candleIndex >= this.dataManager.data.length) return;
                 const time = this.dataManager.data[candleIndex]?.time || '';
@@ -436,7 +444,7 @@
                 const axisMargin = 30;
                 const chartHeight = height - axisMargin;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const spacing = 2; // Fixed 2px gap
+                const spacing = 2;
 
                 this.ctx.strokeStyle = this.options.gridColor;
                 this.ctx.lineWidth = 1;
@@ -456,7 +464,7 @@
                 const textWidth = this.ctx.measureText('2025-01-01').width;
                 const textCenterOffset = 20 + (textWidth / 2);
                 this.dataManager.data.forEach((candle, i) => {
-                    if (i % labelInterval === 0) {
+                    if (i % labelInterval == 0) {
                         const x = (i * (candleWidth + spacing) + this.view.offsetX);
                         if (x >= 0 && x <= width - 90) {
                             this.ctx.beginPath();
@@ -481,7 +489,7 @@
                 const axisMargin = 30;
                 const chartHeight = height - axisMargin;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const spacing = 2; // Fixed 2px gap
+                const spacing = 2;
 
                 this.renderGrid();
 
@@ -526,7 +534,7 @@
 
                 const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
                 this.dataManager.data.forEach((candle, i) => {
-                    if (i % labelInterval === 0) {
+                    if (i % labelInterval == 0) {
                         const x = (i * (candleWidth + spacing) + this.view.offsetX);
                         if (x >= 0 && x <= width - 90) {
                             this.ctx.fillText(this.formatDate(candle.time), x + 20, chartHeight + 10);
