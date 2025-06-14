@@ -90,6 +90,7 @@
         </div>
     </div>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="data/btc-usd.js"></script>
     <script type="text/javascript">
         var gk_isXlsx = false;
         var gk_xlsxFileLookup = {};
@@ -234,6 +235,27 @@
                 return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
             }
 
+            // Calculate line parameters (slope m, intercept b) for linear or logarithmic scale
+            getLineParameters(line) {
+                const x1 = line.start.x;
+                const y1 = line.start.y;
+                const x2 = line.end.x;
+                const y2 = line.end.y;
+                let m, b;
+                if (line.scaleType === 'logarithmic') {
+                    // In log scale, y is log10(price)
+                    const logY1 = Math.log10(Math.max(y1, 0.01));
+                    const logY2 = Math.log10(Math.max(y2, 0.01));
+                    m = (logY2 - logY1) / (x2 - x1 || 0.0001);
+                    b = logY1 - m * x1;
+                } else {
+                    // In linear scale, y is price
+                    m = (y2 - y1) / (x2 - x1 || 0.0001);
+                    b = y1 - m * x1;
+                }
+                return { m, b };
+            }
+
             initEvents() {
                 this.canvas.addEventListener('wheel', (e) => {
                     e.preventDefault();
@@ -291,14 +313,17 @@
                             let minDistance = Infinity;
                             let closestLineIndex = -1;
                             this.lines.forEach((line, index) => {
-                                const startX = line.start.x * (candleWidth + spacing) + this.view.offsetX;
-                                const startY = this.priceToY(line.start.y, height);
-                                const endX = line.end.x * (candleWidth + spacing) + this.view.offsetX;
-                                const endY = this.priceToY(line.end.y, height);
-                                const distance = this.distanceToLineSegment(mouseX, mouseY, startX, startY, endX, endY);
-                                if (distance < minDistance && distance < 5) {
-                                    minDistance = distance;
-                                    closestLineIndex = index;
+                                const points = this.getLinePoints(line, width, height, candleWidth, spacing, 50);
+                                for (let i = 0; i < points.length - 1; i++) {
+                                    const x1 = points[i].x;
+                                    const y1 = points[i].y;
+                                    const x2 = points[i + 1].x;
+                                    const y2 = points[i + 1].y;
+                                    const distance = this.distanceToLineSegment(mouseX, mouseY, x1, y1, x2, y2);
+                                    if (distance < minDistance && distance < 5) {
+                                        minDistance = distance;
+                                        closestLineIndex = index;
+                                    }
                                 }
                             });
 
@@ -322,7 +347,8 @@
                                 } else {
                                     this.lines.push({
                                         start: this.lineStartPoint,
-                                        end: { x: chartX, y: chartY }
+                                        end: { x: chartX, y: chartY },
+                                        scaleType: this.options.scaleType
                                     });
                                     this.lineStartPoint = null;
                                     this.render();
@@ -384,15 +410,19 @@
                             const spacing = 2;
                             let isNearLine = false;
                             for (let line of this.lines) {
-                                const startX = line.start.x * (candleWidth + spacing) + this.view.offsetX;
-                                const startY = this.priceToY(line.start.y, chartHeight);
-                                const endX = line.end.x * (candleWidth + spacing) + this.view.offsetX;
-                                const endY = this.priceToY(line.end.y, chartHeight);
-                                const distance = this.distanceToLineSegment(mouseX, mouseY, startX, startY, endX, endY);
-                                if (distance < 5) {
-                                    isNearLine = true;
-                                    break;
+                                const points = this.getLinePoints(line, width, height, candleWidth, spacing, 50);
+                                for (let i = 0; i < points.length - 1; i++) {
+                                    const x1 = points[i].x;
+                                    const y1 = points[i].y;
+                                    const x2 = points[i + 1].x;
+                                    const y2 = points[i + 1].y;
+                                    const distance = this.distanceToLineSegment(mouseX, mouseY, x1, y1, x2, y2);
+                                    if (distance < 5) {
+                                        isNearLine = true;
+                                        break;
+                                    }
                                 }
+                                if (isNearLine) break;
                             }
                             this.canvas.style.cursor = isNearLine ? 'pointer' : 'default';
                         }
@@ -527,6 +557,34 @@
                 return maData;
             }
 
+            // Generate points for rendering a line (straight or curved)
+            getLinePoints(line, width, height, candleWidth, spacing, numPoints) {
+                const points = [];
+                const xMin = Math.min(line.start.x, line.end.x);
+                const xMax = Math.max(line.start.x, line.end.x);
+                const { m, b } = this.getLineParameters(line);
+                const dx = (xMax - xMin) / (numPoints - 1) || 0.0001;
+
+                for (let i = 0; i < numPoints; i++) {
+                    const x = xMin + i * dx;
+                    let price;
+                    if (line.scaleType === 'logarithmic') {
+                        // Logarithmic line: log10(price) = m * x + b
+                        price = Math.pow(10, m * x + b);
+                    } else {
+                        // Linear line: price = m * x + b
+                        price = m * x + b;
+                    }
+                    price = Math.max(price, 0.01); // Avoid negative or zero prices
+                    const canvasX = x * (candleWidth + spacing) + this.view.offsetX;
+                    const canvasY = this.priceToY(price, height);
+                    if (canvasX >= -candleWidth && canvasX <= width - 90) {
+                        points.push({ x: canvasX, y: canvasY });
+                    }
+                }
+                return points;
+            }
+
             renderIndicators() {
                 if (!this.showMovingAverage) return;
                 const maData = this.calculateMovingAverage(5);
@@ -589,14 +647,13 @@
                     const isSelected = index === this.selectedLineIndex;
                     this.ctx.strokeStyle = isSelected ? 'blue' : 'red';
                     this.ctx.lineWidth = isSelected ? 4 : 2;
-                    const startX = line.start.x * (candleWidth + spacing) + this.view.offsetX;
-                    const startY = this.priceToY(line.start.y, chartHeight);
-                    const endX = line.end.x * (candleWidth + spacing) + this.view.offsetX;
-                    const endY = this.priceToY(line.end.y, chartHeight);
-
+                    const points = this.getLinePoints(line, width, chartHeight, candleWidth, spacing, 50);
                     this.ctx.beginPath();
-                    this.ctx.moveTo(startX, startY);
-                    this.ctx.lineTo(endX, endY);
+                    for (let i = 0; i < points.length; i++) {
+                        const { x, y } = points[i];
+                        if (i === 0) this.ctx.moveTo(x, y);
+                        else this.ctx.lineTo(x, y);
+                    }
                     this.ctx.stroke();
                 });
                 this.ctx.lineWidth = 1;
@@ -709,44 +766,21 @@
             }
         }
 
-        const btcUsdData = [
-            { time: "2025-01-01", open: 93811.12, high: 95000.00, low: 93017.83, close: 94000.00 },
-            { time: "2025-01-07", open: 94000.00, high: 96000.00, low: 93500.00, close: 95500.00 },
-            { time: "2025-01-14", open: 95500.00, high: 97000.00, low: 95000.00, close: 96500.00 },
-            { time: "2025-01-21", open: 96500.00, high: 105104.85, low: 96000.00, close: 103000.00 },
-            { time: "2025-01-28", open: 103000.00, high: 104500.00, low: 102000.00, close: 104030.97 },
-            { time: "2025-02-04", open: 104030.97, high: 101987.25, low: 100000.00, close: 100500.00 },
-            { time: "2025-02-11", open: 100500.00, high: 101000.00, low: 95000.00, close: 96000.00 },
-            { time: "2025-02-18", open: 96000.00, high: 97000.00, low: 90000.00, close: 91000.00 },
-            { time: "2025-02-25", open: 91000.00, high: 92000.00, low: 81975.61, close: 81975.61 },
-            { time: "2025-03-04", open: 81975.61, high: 85000.00, low: 80974.66, close: 83000.00 },
-            { time: "2025-03-11", open: 83000.00, high: 87000.00, low: 82000.00, close: 85000.00 },
-            { time: "2025-03-18", open: 85000.00, high: 90000.00, low: 84000.00, close: 87000.00 },
-            { time: "2025-03-25", open: 87000.00, high: 90867.72, low: 86000.00, close: 82381.03 },
-            { time: "2025-04-01", open: 82381.03, high: 85000.00, low: 77771.33, close: 83000.00 },
-            { time: "2025-04-08", open: 83000.00, high: 87000.00, low: 82000.00, close: 86000.00 },
-            { time: "2025-04-15", open: 86000.00, high: 90000.00, low: 85000.00, close: 89000.00 },
-            { time: "2025-04-22", open: 89000.00, high: 93000.00, low: 88000.00, close: 92000.00 },
-            { time: "2025-04-29", open: 92000.00, high: 95029.76, low: 91000.00, close: 94226.83 },
-            { time: "2025-05-06", open: 94226.83, high: 96000.00, low: 94389.40, close: 95000.00 },
-            { time: "2025-05-13", open: 95000.00, high: 100000.00, low: 95000.00, close: 99000.00 },
-            { time: "2025-05-20", open: 99000.00, high: 105000.00, low: 98000.00, close: 104000.00 },
-            { time: "2025-05-22", open: 104000.00, high: 111891.30, low: 103500.00, close: 111529.83 },
-            { time: "2025-05-27", open: 111529.83, high: 111529.83, low: 108000.00, close: 109000.00 },
-            { time: "2025-06-03", open: 109000.00, high: 110000.00, low: 105000.00, close: 106000.00 },
-            { time: "2025-06-06", open: 106000.00, high: 107000.00, low: 104000.00, close: 104341.62 }
-        ];
-
-        const canvas = document.getElementById('chart');
-        const chart = new Chart(canvas, {
-            data: btcUsdData,
-            candleWidth: 10,
-            upColor: '#F08852',
-            downColor: '#6D96E7',
-            background: '#FFFFFF',
-            axisColor: '#333333',
-            scaleType: 'linear',
-        });
+        // Initialize chart after data is loaded
+        if (typeof btcUsdData !== 'undefined') {
+            const canvas = document.getElementById('chart');
+            const chart = new Chart(canvas, {
+                data: btcUsdData,
+                candleWidth: 10,
+                upColor: '#F08852',
+                downColor: '#6D96E7',
+                background: '#FFFFFF',
+                axisColor: '#333333',
+                scaleType: 'linear',
+            });
+        } else {
+            console.error('BTC/USD data not loaded');
+        }
     </script>
 </body>
 
