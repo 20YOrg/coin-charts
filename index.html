@@ -190,8 +190,8 @@
                 this.crosshair = null;
                 this.showCrosshair = true;
                 this.showMovingAverage = true;
-                this.minScaleX = 0.5; // Min zoom (candles ~5px)
-                this.maxScaleX = 5;   // Max zoom (candles ~50px)
+                this.minScaleX = 0.3; // Min zoom (candles ~3px)
+                this.maxScaleX = 30;  // Max zoom (candles ~300px)
 
                 this.resize();
                 this.initEvents();
@@ -372,8 +372,8 @@
                 this.ctx.beginPath();
                 maData.forEach((ma, i) => {
                     if (ma === null) return;
-                    const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
-                    if (x < -candleWidth || x > width) return;
+                    const x = (i * (candleWidth + spacing) + this.view.offsetX);
+                    if (x < -candleWidth || x > width - 60) return;
                     const y = this.priceToY(ma, chartHeight);
                     if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
                     else this.ctx.lineTo(x, y);
@@ -398,7 +398,7 @@
                 this.ctx.setLineDash([]);
 
                 const price = this.yToPrice(y, chartHeight);
-                const candleIndex = Math.round((x - this.view.offsetX) / ((this.options.candleWidth * this.view.scaleX + 2) * this.view.scaleX));
+                const candleIndex = Math.round((x - this.view.offsetX) / (this.options.candleWidth * this.view.scaleX + 2));
                 if (candleIndex < 0 || candleIndex >= this.dataManager.data.length) return;
                 const time = this.dataManager.data[candleIndex]?.time || '';
 
@@ -430,10 +430,10 @@
                     this.ctx.stroke();
                 }
 
-                const labelInterval = Math.max(1, Math.floor(100 / (candleWidth + spacing)));
+                const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
                 this.dataManager.data.forEach((candle, i) => {
                     if (i % labelInterval === 0) {
-                        const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
+                        const x = (i * (candleWidth + spacing) + this.view.offsetX);
                         if (x >= 0 && x <= width - 60) {
                             this.ctx.beginPath();
                             this.ctx.moveTo(x, 0);
@@ -466,8 +466,8 @@
 
                 this.dataManager.data.slice(startIndex, endIndex).forEach((candle, i) => {
                     const trueIndex = startIndex + i;
-                    const x = (trueIndex * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
-                    if (x < -candleWidth || x > width) return;
+                    const x = (trueIndex * (candleWidth + spacing) + this.view.offsetX);
+                    if (x < -candleWidth || x > width - 60) return;
 
                     const isUp = candle.close >= candle.open;
                     this.ctx.fillStyle = isUp ? this.options.upColor : this.options.downColor;
@@ -510,10 +510,10 @@
                 this.ctx.lineTo(width - 60, chartHeight);
                 this.ctx.stroke();
 
-                const labelInterval = Math.max(1, Math.floor(100 / (candleWidth + spacing)));
+                const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
                 this.dataManager.data.forEach((candle, i) => {
                     if (i % labelInterval === 0) {
-                        const x = (i * (candleWidth + spacing) + this.view.offsetX) * this.view.scaleX;
+                        const x = (i * (candleWidth + spacing) + this.view.offsetX);
                         if (x >= 0 && x <= width - 60) {
                             this.ctx.fillText(this.formatDate(candle.time), x, chartHeight + 20);
                         }
