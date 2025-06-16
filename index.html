@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -68,8 +69,88 @@
         #tool-menu button.active {
             background-color: #d0d0d0;
         }
+
+        #ma-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            z-index: 100;
+            width: 300px;
+        }
+
+        #ma-modal h3 {
+            margin-top: 0;
+        }
+
+        #ma-modal .ma-config {
+            margin-bottom: 15px;
+        }
+
+        #ma-modal label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        #ma-modal input[type="number"],
+        #ma-modal input[type="color"] {
+            width: 100%;
+            padding: 5px;
+            margin-bottom: 10px;
+        }
+
+        #ma-modal input[type="number"] {
+            width: 80px;
+        }
+
+        #ma-modal input[type="color"] {
+            width: 50px;
+            height: 30px;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        #ma-modal .modal-buttons {
+            text-align: right;
+        }
+
+        #ma-modal button {
+            padding: 8px 16px;
+            margin-left: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #ma-modal .save-btn {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        #ma-modal .cancel-btn {
+            background-color: #f44336;
+            color: white;
+        }
+
+        #modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 99;
+        }
     </style>
 </head>
+
 <body>
     <div id="chart-container">
         <canvas id="chart"></canvas>
@@ -82,10 +163,42 @@
         </div>
         <div id="tool-menu">
             <button id="tool-crosshair" title="Toggle Crosshair">✛</button>
-            <button id="tool-ma" title="Toggle Moving Average">📈</button>
+            <button id="tool-ma" title="Configure Moving Average">📈</button>
             <button id="tool-line" title="Draw Finite Line">↗</button>
             <button id="tool-infinite-line" title="Draw Infinite Line">↔</button>
             <button id="tool-reset" title="Reset View">↻</button>
+        </div>
+    </div>
+    <div id="modal-overlay"></div>
+    <div id="ma-modal">
+        <h3>Configure Moving Averages</h3>
+        <div class="ma-config">
+            <label>
+                <input type="checkbox" id="ma1-enabled" checked>
+                Moving Average 1
+            </label>
+            <input type="number" id="ma1-period" value="5" min="1" placeholder="Period">
+            <input type="color" id="ma1-color" value="#0000FF">
+        </div>
+        <div class="ma-config">
+            <label>
+                <input type="checkbox" id="ma2-enabled">
+                Moving Average 2
+            </label>
+            <input type="number" id="ma2-period" value="10" min="1" placeholder="Period">
+            <input type="color" id="ma2-color" value="#FF0000">
+        </div>
+        <div class="ma-config">
+            <label>
+                <input type="checkbox" id="ma3-enabled">
+                Moving Average 3
+            </label>
+            <input type="number" id="ma3-period" value="20" min="1" placeholder="Period">
+            <input type="color" id="ma3-color" value="#00FF00">
+        </div>
+        <div class="modal-buttons">
+            <button class="cancel-btn" onclick="closeMAModal()">Cancel</button>
+            <button class="save-btn" onclick="saveMAModal()">Save</button>
         </div>
     </div>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
@@ -194,7 +307,11 @@
                 this.lastMouseY = 0;
                 this.crosshair = null;
                 this.showCrosshair = true;
-                this.showMovingAverage = true;
+                this.movingAverages = [
+                    { enabled: true, period: 5, color: '#0000FF' },
+                    { enabled: false, period: 10, color: '#FF0000' },
+                    { enabled: false, period: 20, color: '#00FF00' },
+                ];
                 this.isDrawingLine = false;
                 this.isDrawingInfiniteLine = false;
                 this.lineStartPoint = null;
@@ -313,9 +430,8 @@
                     const chartHeight = height - axisMargin;
 
                     if (mouseX <= width - 90 && mouseY <= chartHeight) {
-                        // 模拟 isResizingX 的水平缩放逻辑
-                        const deltaX = -e.deltaY * 0.5; // 将 deltaY 映射到 dx，调整系数以控制缩放速度
-                        const zoomFactor = 1 - deltaX * 0.002; // 与 isResizingX 相同的缩放因子计算
+                        const deltaX = -e.deltaY * 0.5;
+                        const zoomFactor = 1 - deltaX * 0.002;
                         const oldScaleX = this.view.scaleX;
                         const oldCandleWidth = this.options.candleWidth * oldScaleX;
                         const oldSpacing = 2;
@@ -323,7 +439,7 @@
                         const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + this.view.offsetX) + oldCandleWidth / 2;
 
                         this.view.scaleX *= zoomFactor;
-                        this.view.scaleX = Math.max(0.0001, this.view.scaleX); // 防止缩放过小
+                        this.view.scaleX = Math.max(0.0001, this.view.scaleX);
                         const newCandleWidth = this.options.candleWidth * this.view.scaleX;
                         const newSpacing = 2;
                         this.view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
@@ -608,9 +724,7 @@
                 const maButton = document.getElementById('tool-ma');
                 maButton.classList.add('active');
                 maButton.addEventListener('click', () => {
-                    this.showMovingAverage = !this.showMovingAverage;
-                    maButton.classList.toggle('active');
-                    this.render();
+                    openMAModal(this);
                 });
 
                 const lineButton = document.getElementById('tool-line');
@@ -716,24 +830,26 @@
             }
 
             renderIndicators() {
-                if (!this.showMovingAverage) return;
-                const maData = this.calculateMovingAverage(5);
                 const width = this.canvas.offsetWidth;
                 const chartHeight = this.canvas.offsetHeight - 30;
                 const candleWidth = this.options.candleWidth * this.view.scaleX;
                 const spacing = 2;
 
-                this.ctx.strokeStyle = '#0000ff';
-                this.ctx.beginPath();
-                maData.forEach((ma, i) => {
-                    if (ma === null) return;
-                    const x = (i * (candleWidth + spacing) + this.view.offsetX);
-                    if (x < -candleWidth || x > width - 90) return;
-                    const y = this.priceToY(ma, chartHeight);
-                    if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
-                    else this.ctx.lineTo(x, y);
+                this.movingAverages.forEach((ma, index) => {
+                    if (!ma.enabled) return;
+                    const maData = this.calculateMovingAverage(ma.period);
+                    this.ctx.strokeStyle = ma.color;
+                    this.ctx.beginPath();
+                    maData.forEach((value, i) => {
+                        if (value === null) return;
+                        const x = (i * (candleWidth + spacing) + this.view.offsetX);
+                        if (x < -candleWidth || x > width - 90) return;
+                        const y = this.priceToY(value, chartHeight);
+                        if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
+                        else this.ctx.lineTo(x, y);
+                    });
+                    this.ctx.stroke();
                 });
-                this.ctx.stroke();
             }
 
             renderCrosshair() {
@@ -896,6 +1012,54 @@
             }
         }
 
+        function openMAModal(chart) {
+            const modal = document.getElementById('ma-modal');
+            const overlay = document.getElementById('modal-overlay');
+            const inputs = [
+                { enabled: 'ma1-enabled', period: 'ma1-period', color: 'ma1-color' },
+                { enabled: 'ma2-enabled', period: 'ma2-period', color: 'ma2-color' },
+                { enabled: 'ma3-enabled', period: 'ma3-period', color: 'ma3-color' },
+            ];
+
+            inputs.forEach((input, index) => {
+                document.getElementById(input.enabled).checked = chart.movingAverages[index].enabled;
+                document.getElementById(input.period).value = chart.movingAverages[index].period;
+                document.getElementById(input.color).value = chart.movingAverages[index].color;
+            });
+
+            modal.style.display = 'block';
+            overlay.style.display = 'block';
+            window.currentChart = chart;
+        }
+
+        function closeMAModal() {
+            const modal = document.getElementById('ma-modal');
+            const overlay = document.getElementById('modal-overlay');
+            modal.style.display = 'none';
+            overlay.style.display = 'none';
+        }
+
+        function saveMAModal() {
+            const chart = window.currentChart;
+            const inputs = [
+                { enabled: 'ma1-enabled', period: 'ma1-period', color: 'ma1-color' },
+                { enabled: 'ma2-enabled', period: 'ma2-period', color: 'ma2-color' },
+                { enabled: 'ma3-enabled', period: 'ma3-period', color: 'ma3-color' },
+            ];
+
+            chart.movingAverages = inputs.map(input => {
+                const period = parseInt(document.getElementById(input.period).value, 10);
+                return {
+                    enabled: document.getElementById(input.enabled).checked,
+                    period: isNaN(period) || period < 1 ? 5 : period,
+                    color: document.getElementById(input.color).value,
+                };
+            });
+
+            closeMAModal();
+            chart.render();
+        }
+
         if (typeof btcUsdData !== 'undefined') {
             const canvas = document.getElementById('chart');
             const chart = new Chart(canvas, {
@@ -912,4 +1076,5 @@
         }
     </script>
 </body>
+
 </html>
