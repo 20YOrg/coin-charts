@@ -56,18 +56,28 @@
             background: none;
             border: none;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 20px;
             color: #333;
             transition: background-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px; /* Added for consistent rounded corners */
         }
 
         #tool-menu button:hover {
             background-color: #e0e0e0;
-            border-radius: 4px;
         }
 
         #tool-menu button.active {
             background-color: #d0d0d0;
+        }
+
+        #tool-infinite-line span {
+            display: inline-block;
+            transform: rotate(-45deg);
+            font-weight: 900;
+            font-size: 21px;
         }
 
         #ma-modal {
@@ -164,8 +174,14 @@
         <div id="tool-menu">
             <button id="tool-crosshair" title="Toggle Crosshair">✛</button>
             <button id="tool-ma" title="Configure Moving Average">📈</button>
-            <button id="tool-line" title="Draw Finite Line">↗</button>
-            <button id="tool-infinite-line" title="Draw Infinite Line">↔</button>
+            <button id="tool-line" title="Draw Finite Line">
+                <svg width="20" height="20" viewBox="0 0 20 20">
+                    <line x1="6.121" y1="13.879" x2="13.879" y2="6.121" stroke="#333" stroke-width="1.5"/>
+                    <circle cx="4" cy="16" r="2" fill="none" stroke="#333" stroke-width="2"/>
+                    <circle cx="16" cy="4" r="2" fill="none" stroke="#333" stroke-width="2"/>
+                </svg>
+            </button>
+            <button id="tool-infinite-line" title="Draw Infinite Line"><span>↔</span></button>
             <button id="tool-reset" title="Reset View">↻</button>
         </div>
     </div>
@@ -722,7 +738,6 @@
                 });
 
                 const maButton = document.getElementById('tool-ma');
-                maButton.classList.add('active');
                 maButton.addEventListener('click', () => {
                     openMAModal(this);
                 });
@@ -1037,6 +1052,7 @@
             const overlay = document.getElementById('modal-overlay');
             modal.style.display = 'none';
             overlay.style.display = 'none';
+            document.getElementById('tool-ma').classList.remove('active');
         }
 
         function saveMAModal() {
