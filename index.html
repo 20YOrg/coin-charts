@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -71,7 +70,6 @@
         }
     </style>
 </head>
-
 <body>
     <div id="chart-container">
         <canvas id="chart"></canvas>
@@ -183,13 +181,17 @@
                     offsetX: 0,
                     scaleX: 1,
                     scaleY: 1,
+                    offsetY: 0,
                     minPrice: 0,
                     maxPrice: 100,
                     minLogPrice: 0,
                     maxLogPrice: 0,
                 };
                 this.isDragging = false;
+                this.isResizingY = false;
+                this.isResizingX = false;
                 this.lastMouseX = 0;
+                this.lastMouseY = 0;
                 this.crosshair = null;
                 this.showCrosshair = true;
                 this.showMovingAverage = true;
@@ -199,8 +201,6 @@
                 this.lines = [];
                 this.selectedLineIndex = -1;
                 this.isMovingLine = false;
-                this.minScaleX = 0.3; // Min zoom (candles ~3px)
-                this.maxScaleX = 30;  // Max zoom (candles ~300px)
 
                 this.resize();
                 this.initEvents();
@@ -306,28 +306,16 @@
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
                     const width = this.canvas.offsetWidth;
-                    const zoomFactor = e.deltaY > 0 ? 0.97 : 1.03;
+                    const height = this.canvas.offsetHeight;
+                    const axisMargin = 30;
+                    const chartHeight = height - axisMargin;
 
-                    if (mouseX > width - 90) {
-                        if (this.options.scaleType === 'logarithmic') {
-                            const logRange = this.view.maxLogPrice - this.view.minLogPrice;
-                            const newLogRange = Math.max(logRange / zoomFactor, 0.01);
-                            const logMid = (this.view.maxLogPrice + this.view.minLogPrice) / 2;
-                            this.view.minLogPrice = logMid - newLogRange / 2;
-                            this.view.maxLogPrice = logMid + newLogRange / 2;
-                            this.view.minPrice = Math.pow(10, this.view.minLogPrice);
-                            this.view.maxPrice = Math.pow(10, this.view.maxLogPrice);
-                        } else {
-                            const priceRange = this.view.maxPrice - this.view.minPrice;
-                            const newPriceRange = Math.max(priceRange / zoomFactor, 0.01);
-                            const priceMid = (this.view.maxPrice + this.view.minPrice) / 2;
-                            this.view.minPrice = Math.max(priceMid - newPriceRange / 2, 0.01);
-                            this.view.maxPrice = priceMid + newPriceRange / 2;
-                            this.view.minLogPrice = Math.log10(this.view.minPrice);
-                            this.view.maxLogPrice = Math.log10(this.view.maxPrice);
-                        }
-                    } else {
+                    if (mouseX <= width - 90 && mouseY <= chartHeight) {
+                        // 模拟 isResizingX 的水平缩放逻辑
+                        const deltaX = -e.deltaY * 0.5; // 将 deltaY 映射到 dx，调整系数以控制缩放速度
+                        const zoomFactor = 1 - deltaX * 0.002; // 与 isResizingX 相同的缩放因子计算
                         const oldScaleX = this.view.scaleX;
                         const oldCandleWidth = this.options.candleWidth * oldScaleX;
                         const oldSpacing = 2;
@@ -335,12 +323,13 @@
                         const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + this.view.offsetX) + oldCandleWidth / 2;
 
                         this.view.scaleX *= zoomFactor;
-                        this.view.scaleX = Math.max(this.minScaleX, Math.min(this.maxScaleX, this.view.scaleX));
+                        this.view.scaleX = Math.max(0.0001, this.view.scaleX); // 防止缩放过小
                         const newCandleWidth = this.options.candleWidth * this.view.scaleX;
                         const newSpacing = 2;
                         this.view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
+
+                        this.render();
                     }
-                    this.render();
                 });
 
                 this.canvas.addEventListener('mousedown', (e) => {
@@ -350,6 +339,18 @@
                         const mouseY = e.clientY - rect.top;
                         const width = this.canvas.offsetWidth;
                         const height = this.canvas.offsetHeight - 30;
+
+                        if (mouseX > width - 90) {
+                            this.isResizingY = true;
+                            this.lastMouseY = mouseY;
+                            this.canvas.style.cursor = 'ns-resize';
+                            return;
+                        } else if (mouseY > height) {
+                            this.isResizingX = true;
+                            this.lastMouseX = mouseX;
+                            this.canvas.style.cursor = 'ew-resize';
+                            return;
+                        }
 
                         if (mouseX <= width - 90 && mouseY <= height) {
                             const candleWidth = this.options.candleWidth * this.view.scaleX;
@@ -415,12 +416,14 @@
                                 this.selectedLineIndex = -1;
                                 this.isDragging = true;
                                 this.lastMouseX = e.clientX;
+                                this.lastMouseY = e.clientY;
                                 this.render();
                             }
                         } else {
                             this.selectedLineIndex = -1;
                             this.isDragging = true;
                             this.lastMouseX = e.clientX;
+                            this.lastMouseY = e.clientY;
                             this.render();
                         }
                     }
@@ -435,11 +438,67 @@
                     const axisMargin = 30;
                     const chartHeight = height - axisMargin;
 
-                    if (this.isDragging) {
+                    if (this.isResizingY) {
+                        const dy = mouseY - this.lastMouseY;
+                        const zoomFactor = 1 - dy * 0.002;
+                        const centerPrice = this.yToPrice(chartHeight / 2, chartHeight);
+
+                        if (this.options.scaleType === 'logarithmic') {
+                            const logRange = this.view.maxLogPrice - this.view.minLogPrice;
+                            const newLogRange = Math.max(logRange / zoomFactor, 0.01);
+                            const logMid = (this.view.maxLogPrice + this.view.minLogPrice) / 2;
+                            this.view.minLogPrice = logMid - newLogRange / 2;
+                            this.view.maxLogPrice = logMid + newLogRange / 2;
+                            this.view.minPrice = Math.pow(10, this.view.minLogPrice);
+                            this.view.maxPrice = Math.pow(10, this.view.maxLogPrice);
+                        } else {
+                            const priceRange = this.view.maxPrice - this.view.minPrice;
+                            const newPriceRange = Math.max(priceRange / zoomFactor, 0.01);
+                            const priceMid = (this.view.maxPrice + this.view.minPrice) / 2;
+                            this.view.minPrice = Math.max(priceMid - newPriceRange / 2, 0.01);
+                            this.view.maxPrice = priceMid + newPriceRange / 2;
+                            this.view.minLogPrice = Math.log10(this.view.minPrice);
+                            this.view.maxLogPrice = Math.log10(this.view.maxPrice);
+                        }
+
+                        const newCenterY = this.priceToY(centerPrice, chartHeight);
+                        this.view.offsetY += (chartHeight / 2) - newCenterY;
+
+                        this.lastMouseY = mouseY;
+                        this.canvas.style.cursor = 'ns-resize';
+                        this.render();
+                    } else if (this.isResizingX) {
+                        const dx = mouseX - this.lastMouseX;
+                        const zoomFactor = 1 - dx * 0.002;
+                        const oldScaleX = this.view.scaleX;
+                        const oldCandleWidth = this.options.candleWidth * oldScaleX;
+                        const oldSpacing = 2;
+                        const lastIndex = this.dataManager.data.length - 1;
+                        const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + this.view.offsetX) + oldCandleWidth / 2;
+
+                        this.view.scaleX *= zoomFactor;
+                        this.view.scaleX = Math.max(0.0001, this.view.scaleX);
+                        const newCandleWidth = this.options.candleWidth * this.view.scaleX;
+                        const newSpacing = 2;
+                        this.view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
+                        this.lastMouseX = mouseX;
+                        this.canvas.style.cursor = 'ew-resize';
+                        this.render();
+                    } else if (this.isDragging) {
                         const dx = e.clientX - this.lastMouseX;
-                        this.view.offsetX += dx / this.view.scaleX;
+                        const dy = e.clientY - this.lastMouseY;
+                        const pixelPerCandle = Math.max(0.0001, this.options.candleWidth * this.view.scaleX + 2);
+                        const sensitivityX = 10;
+                        const sensitivityY = 1.5;
+                        const priceRange = Math.max(this.view.maxPrice - this.view.minPrice, 0.01);
+                        const priceDelta = this.yToPrice(chartHeight / 2, chartHeight) - this.yToPrice(chartHeight / 2 + dy, chartHeight);
+
+                        this.view.offsetX += (dx / pixelPerCandle) * sensitivityX;
+                        this.view.offsetY += (priceDelta / priceRange) * chartHeight * sensitivityY;
+
                         this.lastMouseX = e.clientX;
-                        this.canvas.style.cursor = 'default';
+                        this.lastMouseY = e.clientY;
+                        this.canvas.style.cursor = 'move';
                         this.render();
                     } else if (this.isMovingLine && this.selectedLineIndex !== -1) {
                         const candleWidth = this.options.candleWidth * this.view.scaleX;
@@ -463,9 +522,12 @@
                         this.canvas.style.cursor = 'pointer';
                         this.render();
                     } else if (this.showCrosshair && !this.isDrawingLine && !this.isDrawingInfiniteLine) {
-                        if (mouseX > width - 90 || mouseY > chartHeight) {
+                        if (mouseX > width - 90) {
                             this.crosshair = null;
-                            this.canvas.style.cursor = 'default';
+                            this.canvas.style.cursor = 'ns-resize';
+                        } else if (mouseY > chartHeight) {
+                            this.crosshair = null;
+                            this.canvas.style.cursor = 'ew-resize';
                         } else {
                             this.crosshair = { x: mouseX, y: mouseY };
                             const candleWidth = this.options.candleWidth * this.view.scaleX;
@@ -494,10 +556,24 @@
                     }
                 });
 
-                this.canvas.addEventListener('mouseup', (e) => {
+                document.addEventListener('mouseup', (e) => {
                     if (e.button === 0) {
                         this.isDragging = false;
                         this.isMovingLine = false;
+                        this.isResizingY = false;
+                        this.isResizingX = false;
+                        this.canvas.style.cursor = 'default';
+                    }
+                });
+
+                this.canvas.addEventListener('mouseleave', () => {
+                    if (this.isDragging || this.isResizingY || this.isResizingX || this.isMovingLine) {
+                        this.isDragging = false;
+                        this.isMovingLine = false;
+                        this.isResizingY = false;
+                        this.isResizingX = false;
+                        this.canvas.style.cursor = 'default';
+                        this.render();
                     }
                 });
 
@@ -566,6 +642,7 @@
                 const resetButton = document.getElementById('tool-reset');
                 resetButton.addEventListener('click', () => {
                     this.view.offsetX = (this.canvas.offsetWidth - 90 - 20) - ((this.dataManager.data.length - 1) * (this.options.candleWidth * 1 + 2));
+                    this.view.offsetY = 0;
                     this.view.scaleX = 1;
                     this.view.minPrice = 0;
                     this.view.maxPrice = 100;
@@ -600,15 +677,15 @@
                 if (this.options.scaleType === 'logarithmic') {
                     const logPrice = Math.log10(price);
                     const logRange = Math.max(this.view.maxLogPrice - this.view.minLogPrice, 0.01);
-                    return height - ((logPrice - this.view.minLogPrice) / logRange) * height;
+                    return height - ((logPrice - this.view.minLogPrice) / logRange) * height + this.view.offsetY;
                 } else {
                     const priceRange = Math.max(this.view.maxPrice - this.view.minPrice, 0.01);
-                    return height - ((price - this.view.minPrice) / priceRange) * height;
+                    return height - ((price - this.view.minPrice) / priceRange) * height + this.view.offsetY;
                 }
             }
 
             yToPrice(y, height) {
-                y = Math.max(0, Math.min(height, y));
+                y = Math.max(0, Math.min(height, y)) - this.view.offsetY;
                 if (this.options.scaleType === 'logarithmic') {
                     const logRange = Math.max(this.view.maxLogPrice - this.view.minLogPrice, 0.01);
                     const logPrice = this.view.minLogPrice + (1 - y / height) * logRange;
@@ -835,5 +912,4 @@
         }
     </script>
 </body>
-
 </html>
