@@ -62,7 +62,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 4px; /* Added for consistent rounded corners */
+            border-radius: 4px;
         }
 
         #tool-menu button:hover {
@@ -872,12 +872,13 @@
                 const { x, y } = this.crosshair;
                 const width = this.canvas.offsetWidth;
                 const chartHeight = this.canvas.offsetHeight - 30;
+                const labelMargin = 30; // Match grid's label margin
 
                 this.ctx.strokeStyle = '#666';
                 this.ctx.setLineDash([5, 5]);
                 this.ctx.beginPath();
-                this.ctx.moveTo(x, 0);
-                this.ctx.lineTo(x, chartHeight);
+                this.ctx.moveTo(x, 0); // Start vertical line at top grid margin
+                this.ctx.lineTo(x, chartHeight - labelMargin); // End at bottom grid margin
                 this.ctx.moveTo(0, y);
                 this.ctx.lineTo(width - 90, y);
                 this.ctx.stroke();
