@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coin Charts</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/tool-menu.css">
+    <link rel="stylesheet" href="css/modal.css">
+</head>
+
+<body>
+    <div id="chart-container">
+        <canvas id="chart"></canvas>
+        <div id="controls">
+            <label for="scale-select">Price Scale: </label>
+            <select id="scale-select">
+                <option value="linear">Linear</option>
+                <option value="logarithmic">Logarithmic</option>
+            </select>
+        </div>
+        <div id="tool-menu">
+            <button id="tool-crosshair" title="Toggle Crosshair">✛</button>
+            <button id="tool-ma" title="Configure Moving Average">📈</button>
+            <button id="tool-line" title="Draw Finite Line">
+                <svg width="20" height="20" viewBox="0 0 20 20">
+                    <line x1="6.121" y1="13.879" x2="13.879" y2="6.121" stroke="#333" stroke-width="1.5" />
+                    <circle cx="4" cy="16" r="2" fill="none" stroke="#333" stroke-width="2" />
+                    <circle cx="16" cy="4" r="2" fill="none" stroke="#333" stroke-width="2" />
+                </svg>
+            </button>
+            <button id="tool-infinite-line" title="Draw Infinite Line"><span>↔</span></button>
+            <button id="tool-reset" title="Reset View">↻</button>
+        </div>
+    </div>
+    <div id="modal-overlay"></div>
+    <div id="ma-modal">
+        <h3>Configure Moving Averages</h3>
+        <div class="ma-config">
+            <label>
+                <input type="checkbox" id="ma1-enabled" checked>
+                Moving Average 1
+            </label>
+            <input type="number" id="ma1-period" value="5" min="1" placeholder="Period">
+            <input type="color" id="ma1-color" value="#0000FF">
+        </div>
+        <div class="ma-config">
+            <label>
+                <input type="checkbox" id="ma2-enabled">
+                Moving Average 2
+            </label>
+            <input type="number" id="ma2-period" value="10" min="1" placeholder="Period">
+            <input type="color" id="ma2-color" value="#FF0000">
+        </div>
+        <div class="ma-config">
+            <label>
+                <input type="checkbox" id="ma3-enabled">
+                Moving Average 3
+            </label>
+            <input type="number" id="ma3-period" value="20" min="1" placeholder="Period">
+            <input type="color" id="ma3-color" value="#00FF00">
+        </div>
+        <div class="modal-buttons">
+            <button class="cancel-btn">Cancel</button>
+            <button class="save-btn">Save</button>
+        </div>
+    </div>
+    <script type="module" src="js/main.js"></script>
+</body>
+
+</html>
