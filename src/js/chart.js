@@ -26,7 +26,7 @@ export class Chart {
             minPrice: 0,
             maxPrice: 100,
             minLogPrice: 0,
-            maxLogPrice: 0,
+            maxLogPrice: 2,
         };
         this.isDragging = false;
         this.isResizingY = false;
@@ -67,20 +67,6 @@ export class Chart {
         this.render();
     }
 
-    calculatePriceRange() {
-        if (!this.dataManager.data.length) return;
-        const prices = this.dataManager.data.flatMap(d => [d.high, d.low]);
-        const dataMinPrice = Math.min(...prices);
-        const dataMaxPrice = Math.max(...prices);
-        const padding = (dataMaxPrice - dataMinPrice) * 0.1;
-        if (this.view.minPrice === 0 && this.view.maxPrice === 100) {
-            this.view.minPrice = Math.max(dataMinPrice - padding, 0.01);
-            this.view.maxPrice = dataMaxPrice + padding;
-            this.view.minLogPrice = Math.log10(this.view.minPrice);
-            this.view.maxLogPrice = Math.log10(this.view.maxPrice);
-        }
-    }
-
     render() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.fillStyle = this.options.background;
@@ -88,12 +74,33 @@ export class Chart {
 
         if (!this.dataManager.data.length) return;
 
-        this.calculatePriceRange();
         const width = this.canvas.offsetWidth;
         const height = this.canvas.offsetHeight;
         const chartHeight = height - AXIS_MARGIN;
         const candleWidth = this.options.candleWidth * this.view.scaleX;
         const spacing = CANDLE_SPACING;
+
+        const startIndex = Math.max(0, Math.floor(-this.view.offsetX / (candleWidth + spacing)));
+        const endIndex = Math.min(this.dataManager.data.length, Math.ceil((width - AXIS_MARGIN - this.view.offsetX) / (candleWidth + spacing)));
+        const visibleData = this.dataManager.data.slice(startIndex, endIndex);
+
+        // Compute price range for rendering (not labels)
+        let minPrice = Infinity, maxPrice = -Infinity;
+        if (visibleData.length) {
+            const prices = visibleData.flatMap(d => [d.high, d.low]);
+            minPrice = Math.min(...prices);
+            maxPrice = Math.max(...prices);
+            const padding = (maxPrice - minPrice) * 0.1 || 0.01;
+            this.view.minPrice = Math.max(minPrice - padding, 0.01);
+            this.view.maxPrice = maxPrice + padding;
+            this.view.minLogPrice = Math.log10(this.view.minPrice);
+            this.view.maxLogPrice = Math.log10(this.view.maxPrice);
+        } else {
+            this.view.minPrice = 0;
+            this.view.maxPrice = 100;
+            this.view.minLogPrice = 0;
+            this.view.maxLogPrice = 2;
+        }
 
         renderGrid(this.ctx, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
         renderCandles(this.ctx, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
@@ -101,15 +108,21 @@ export class Chart {
         renderLines(this.ctx, this.lines, this.selectedLineIndex, this, width, height, candleWidth, spacing);
         renderCrosshair(this.ctx, this.crosshair, this.showCrosshair, this.isDrawingLine, this.isDrawingInfiniteLine, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
 
-        // Render axis labels
+        // Render price axis labels (round numbers)
         this.ctx.fillStyle = this.options.axisColor;
         this.ctx.font = '12px Arial';
-        for (let i = 0; i <= PRICE_STEPS; i++) {
-            const y = LABEL_MARGIN + ((chartHeight - 2 * LABEL_MARGIN) * i) / PRICE_STEPS;
-            const price = this.view.minPrice + (i / PRICE_STEPS) * (this.view.maxPrice - this.view.minPrice);
-            this.ctx.fillText(price.toFixed(2), width - 75, chartHeight - y + 4);
+        const priceRange = this.view.maxPrice - this.view.minPrice;
+        const roundInterval = Math.pow(10, Math.floor(Math.log10(priceRange / PRICE_STEPS))) * (priceRange > 5000 ? 10 : priceRange > 500 ? 5 : 1);
+        const basePrice = Math.floor(this.view.minPrice / roundInterval) * roundInterval;
+        for (let price = basePrice; price <= this.view.maxPrice + roundInterval; price += roundInterval) {
+            if (price < 0) continue;
+            const y = priceToY(price, chartHeight, this.view, this.options.scaleType);
+            if (y >= -20 && y <= chartHeight + 20) { // Allow slight overflow for visibility
+                this.ctx.fillText(price.toFixed(0), width - 75, y + 4);
+            }
         }
 
+        // Render time axis labels
         const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
         this.dataManager.data.forEach((candle, i) => {
             if (i % labelInterval === 0) {

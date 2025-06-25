@@ -100,22 +100,24 @@ export function priceToY(price, height, view, scaleType) {
     if (scaleType === 'logarithmic') {
         const logPrice = Math.log10(price);
         const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 0.01);
-        return height - ((logPrice - view.minLogPrice) / logRange) * height + view.offsetY;
+        const normalized = (logPrice - view.minLogPrice) / logRange;
+        return height - normalized * height * view.scaleY + view.offsetY;
     } else {
         const priceRange = Math.max(view.maxPrice - view.minPrice, 0.01);
-        return height - ((price - view.minPrice) / priceRange) * height + view.offsetY;
+        const normalized = (price - view.minPrice) / priceRange;
+        return height - normalized * height * view.scaleY + view.offsetY;
     }
 }
 
 export function yToPrice(y, height, view, scaleType) {
-    y = Math.max(0, Math.min(height, y)) - view.offsetY;
+    const normalizedY = (height - (y - view.offsetY)) / (height * view.scaleY);
     if (scaleType === 'logarithmic') {
         const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 0.01);
-        const logPrice = view.minLogPrice + (1 - y / height) * logRange;
+        const logPrice = view.minLogPrice + normalizedY * logRange;
         return Math.max(Math.pow(10, logPrice), 0.01);
     } else {
         const priceRange = Math.max(view.maxPrice - view.minPrice, 0.01);
-        return Math.max(view.minPrice + (1 - y / height) * priceRange, 0.01);
+        return Math.max(view.minPrice + normalizedY * priceRange, 0.01);
     }
 }
 

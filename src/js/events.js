@@ -142,29 +142,8 @@ export function initEvents(chart) {
         if (chart.isResizingY) {
             const dy = mouseY - chart.lastMouseY;
             const zoomFactor = 1 - dy * 0.002;
-            const centerPrice = yToPrice(chartHeight / 2, chartHeight, view, options.scaleType);
-
-            if (options.scaleType === 'logarithmic') {
-                const logRange = view.maxLogPrice - view.minLogPrice;
-                const newLogRange = Math.max(logRange / zoomFactor, 0.01);
-                const logMid = (view.maxLogPrice + view.minLogPrice) / 2;
-                view.minLogPrice = logMid - newLogRange / 2;
-                view.maxLogPrice = logMid + newLogRange / 2;
-                view.minPrice = Math.pow(10, view.minLogPrice);
-                view.maxPrice = Math.pow(10, view.maxLogPrice);
-            } else {
-                const priceRange = view.maxPrice - view.minPrice;
-                const newPriceRange = Math.max(priceRange / zoomFactor, 0.01);
-                const priceMid = (view.maxPrice + view.minPrice) / 2;
-                view.minPrice = Math.max(priceMid - newPriceRange / 2, 0.01);
-                view.maxPrice = priceMid + newPriceRange / 2;
-                view.minLogPrice = Math.log10(view.minPrice);
-                view.maxLogPrice = Math.log10(view.maxPrice);
-            }
-
-            const newCenterY = priceToY(centerPrice, chartHeight, view, options.scaleType);
-            view.offsetY += (chartHeight / 2) - newCenterY;
-
+            view.scaleY *= zoomFactor;
+            view.scaleY = Math.max(0.0001, view.scaleY);
             chart.lastMouseY = mouseY;
             canvas.style.cursor = 'ns-resize';
             chart.render();
@@ -190,13 +169,8 @@ export function initEvents(chart) {
             const dy = e.clientY - chart.lastMouseY;
             const pixelPerCandle = Math.max(0.0001, options.candleWidth * view.scaleX + CANDLE_SPACING);
             const sensitivityX = 10;
-            const sensitivityY = 1.5;
-            const priceRange = Math.max(view.maxPrice - view.minPrice, 0.01);
-            const priceDelta = yToPrice(chartHeight / 2, chartHeight, view, options.scaleType) - yToPrice(chartHeight / 2 + dy, chartHeight, view, options.scaleType);
-
             view.offsetX += (dx / pixelPerCandle) * sensitivityX;
-            view.offsetY += (priceDelta / priceRange) * chartHeight * sensitivityY;
-
+            view.offsetY += dy;
             chart.lastMouseX = e.clientX;
             chart.lastMouseY = e.clientY;
             canvas.style.cursor = 'move';
@@ -372,14 +346,12 @@ export function initEvents(chart) {
             view.offsetX = (canvas.offsetWidth - AXIS_MARGIN - 20) - ((dataManager.data.length - 1) * (options.candleWidth * 1 + CANDLE_SPACING));
             view.offsetY = 0;
             view.scaleX = 1;
-            view.minPrice = 0;
-            view.maxPrice = 100;
+            view.scaleY = 1;
             lines.length = 0;
             chart.selectedLineIndex = -1;
             chart.isDrawingLine = false;
             chart.isDrawingInfiniteLine = false;
             chart.lineStartPoint = null;
-            chart.calculatePriceRange();
             chart.render();
         });
     } else {
