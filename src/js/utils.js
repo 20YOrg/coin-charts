@@ -38,8 +38,8 @@ export function getLineParameters(line) {
         m = Infinity;
         b = x1;
     } else if (line.scaleType === 'logarithmic') {
-        const logY1 = Math.log10(Math.max(y1, 0.01));
-        const logY2 = Math.log10(Math.max(y2, 0.01));
+        const logY1 = Math.log10(Math.max(y1, 1e-10));
+        const logY2 = Math.log10(Math.max(y2, 1e-10));
         m = (logY2 - logY1) / dx;
         b = logY1 - m * x1;
     } else {
@@ -83,7 +83,7 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
             } else {
                 price = m * x + b;
             }
-            price = Math.max(price, 0.01);
+            price = Math.max(price, 1e-10);
             const canvasX = x * (candleWidth + spacing) + chart.view.offsetX;
             const canvasY = priceToY(price, height, chart.view, chart.options.scaleType);
             if (canvasX >= -candleWidth && canvasX <= width - AXIS_MARGIN && isFinite(canvasY)) {
@@ -96,14 +96,14 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
 }
 
 export function priceToY(price, height, view, scaleType) {
-    price = Math.max(price, 0.01);
+    price = Math.max(price, 1e-10);
     if (scaleType === 'logarithmic') {
         const logPrice = Math.log10(price);
-        const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 0.01);
+        const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 1e-10);
         const normalized = (logPrice - view.minLogPrice) / logRange;
         return height - normalized * height * view.scaleY + view.offsetY;
     } else {
-        const priceRange = Math.max(view.maxPrice - view.minPrice, 0.01);
+        const priceRange = Math.max(view.maxPrice - view.minPrice, 1e-10);
         const normalized = (price - view.minPrice) / priceRange;
         return height - normalized * height * view.scaleY + view.offsetY;
     }
@@ -112,12 +112,12 @@ export function priceToY(price, height, view, scaleType) {
 export function yToPrice(y, height, view, scaleType) {
     const normalizedY = (height - (y - view.offsetY)) / (height * view.scaleY);
     if (scaleType === 'logarithmic') {
-        const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 0.01);
+        const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 1e-10);
         const logPrice = view.minLogPrice + normalizedY * logRange;
-        return Math.max(Math.pow(10, logPrice), 0.01);
+        return Math.max(Math.pow(10, logPrice), 1e-10);
     } else {
-        const priceRange = Math.max(view.maxPrice - view.minPrice, 0.01);
-        return Math.max(view.minPrice + normalizedY * priceRange, 0.01);
+        const priceRange = Math.max(view.maxPrice - view.minPrice, 1e-10);
+        return Math.max(view.minPrice + normalizedY * priceRange, 1e-10);
     }
 }
 

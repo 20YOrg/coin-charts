@@ -108,17 +108,28 @@ export class Chart {
         renderLines(this.ctx, this.lines, this.selectedLineIndex, this, width, height, candleWidth, spacing);
         renderCrosshair(this.ctx, this.crosshair, this.showCrosshair, this.isDrawingLine, this.isDrawingInfiniteLine, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
 
-        // Render price axis labels (round numbers)
+        // Render price axis labels (fixed 10 round numbers, including < 1)
         this.ctx.fillStyle = this.options.axisColor;
         this.ctx.font = '12px Arial';
         const priceRange = this.view.maxPrice - this.view.minPrice;
-        const roundInterval = Math.pow(10, Math.floor(Math.log10(priceRange / PRICE_STEPS))) * (priceRange > 5000 ? 10 : priceRange > 500 ? 5 : 1);
+        const numLabels = 10; // Fixed number of labels
+        let roundInterval = priceRange / (numLabels - 1);
+        // Round to nearest round number (including fractions like 0.1, 0.01)
+        const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(roundInterval, 1e-10))));
+        const normalized = roundInterval / magnitude;
+        if (normalized > 5) roundInterval = 10 * magnitude;
+        else if (normalized > 2) roundInterval = 5 * magnitude;
+        else if (normalized > 1) roundInterval = 2 * magnitude;
+        else roundInterval = magnitude;
+        // Determine decimal places for display
+        const decimals = roundInterval < 1 ? Math.max(0, -Math.floor(Math.log10(roundInterval))) : 0;
         const basePrice = Math.floor(this.view.minPrice / roundInterval) * roundInterval;
-        for (let price = basePrice; price <= this.view.maxPrice + roundInterval; price += roundInterval) {
+        for (let i = 0; i < numLabels; i++) {
+            const price = basePrice + i * roundInterval;
             if (price < 0) continue;
             const y = priceToY(price, chartHeight, this.view, this.options.scaleType);
-            if (y >= -20 && y <= chartHeight + 20) { // Allow slight overflow for visibility
-                this.ctx.fillText(price.toFixed(0), width - 75, y + 4);
+            if (y >= -20 && y <= chartHeight + 20) {
+                this.ctx.fillText(price.toFixed(decimals), width - 75, y + 4);
             }
         }
 
