@@ -91,7 +91,7 @@ export class Chart {
             minPrice = Math.min(...prices);
             maxPrice = Math.max(...prices);
             const padding = (maxPrice - minPrice) * 0.1 || 0.01;
-            this.view.minPrice = Math.max(minPrice - padding, 0.01);
+            this.view.minPrice = Math.max(minPrice - padding, 1e-10);
             this.view.maxPrice = maxPrice + padding;
             this.view.minLogPrice = Math.log10(this.view.minPrice);
             this.view.maxLogPrice = Math.log10(this.view.maxPrice);
@@ -108,13 +108,18 @@ export class Chart {
         renderLines(this.ctx, this.lines, this.selectedLineIndex, this, width, height, candleWidth, spacing);
         renderCrosshair(this.ctx, this.crosshair, this.showCrosshair, this.isDrawingLine, this.isDrawingInfiniteLine, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
 
-        // Render price axis labels (fixed 10 round numbers, including < 1)
+        // Render price axis labels (spaced ~75px, round numbers including < 1)
         this.ctx.fillStyle = this.options.axisColor;
         this.ctx.font = '12px Arial';
         const priceRange = this.view.maxPrice - this.view.minPrice;
-        const numLabels = 10; // Fixed number of labels
-        let roundInterval = priceRange / (numLabels - 1);
-        // Round to nearest round number (including fractions like 0.1, 0.01)
+        const targetPixelSpacing = 75; // Desired pixel spacing between labels
+        // Estimate price interval for ~75px spacing
+        const testPrice = this.view.minPrice + 1; // Use 1 or a small increment
+        const testY = priceToY(this.view.minPrice, chartHeight, this.view, this.options.scaleType);
+        const testY2 = priceToY(testPrice, chartHeight, this.view, this.options.scaleType);
+        const pixelsPerPrice = Math.abs(testY - testY2) / Math.abs(testPrice - this.view.minPrice);
+        let roundInterval = targetPixelSpacing / pixelsPerPrice;
+        // Round to nearest round number (including fractions)
         const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(roundInterval, 1e-10))));
         const normalized = roundInterval / magnitude;
         if (normalized > 5) roundInterval = 10 * magnitude;
@@ -124,8 +129,8 @@ export class Chart {
         // Determine decimal places for display
         const decimals = roundInterval < 1 ? Math.max(0, -Math.floor(Math.log10(roundInterval))) : 0;
         const basePrice = Math.floor(this.view.minPrice / roundInterval) * roundInterval;
-        for (let i = 0; i < numLabels; i++) {
-            const price = basePrice + i * roundInterval;
+        const maxPriceBound = this.view.maxPrice + roundInterval * 2; // Extend slightly beyond maxPrice
+        for (let price = basePrice; price <= maxPriceBound; price += roundInterval) {
             if (price < 0) continue;
             const y = priceToY(price, chartHeight, this.view, this.options.scaleType);
             if (y >= -20 && y <= chartHeight + 20) {
