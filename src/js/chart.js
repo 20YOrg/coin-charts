@@ -36,9 +36,9 @@ export class Chart {
         this.crosshair = null;
         this.showCrosshair = true;
         this.movingAverages = [
-            { enabled: true, period: 5, color: '#0000FF' },
-            { enabled: false, period: 10, color: '#FF0000' },
-            { enabled: false, period: 20, color: '#00FF00' },
+            { enabled: true, period: 7, color: '#0000FF' },   // 7-day MA
+            { enabled: true, period: 30, color: '#FF0000' },  // 30-day MA
+            { enabled: true, period: 365, color: '#00FF00' }, // 365-day MA
         ];
         this.isDrawingLine = false;
         this.isDrawingInfiniteLine = false;

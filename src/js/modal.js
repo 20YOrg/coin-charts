@@ -13,6 +13,11 @@ export function openMAModal(chart) {
         document.getElementById(input.color).value = chart.movingAverages[index].color;
     });
 
+    // Set default periods in modal inputs
+    document.getElementById('ma1-period').value = chart.movingAverages[0].period || 7;
+    document.getElementById('ma2-period').value = chart.movingAverages[1].period || 30;
+    document.getElementById('ma3-period').value = chart.movingAverages[2].period || 365;
+
     modal.style.display = 'block';
     overlay.style.display = 'block';
     window.currentChart = chart;
@@ -34,7 +39,7 @@ export function closeMAModal() {
     const overlay = document.getElementById('modal-overlay');
     modal.style.display = 'none';
     overlay.style.display = 'none';
-    document.getElementById('tool-ma').classList.remove('active');
+    document.getElementById('tool-ma')?.classList.remove('active');
 }
 
 export function saveMAModal(chart) {
@@ -48,7 +53,7 @@ export function saveMAModal(chart) {
         const period = parseInt(document.getElementById(input.period).value, 10);
         return {
             enabled: document.getElementById(input.enabled).checked,
-            period: isNaN(period) || period < 1 ? 5 : period,
+            period: isNaN(period) || period < 1 ? 7 : period, // Default to 7 if invalid
             color: document.getElementById(input.color).value,
         };
     });
