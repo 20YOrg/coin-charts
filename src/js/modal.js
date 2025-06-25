@@ -17,18 +17,16 @@ export function openMAModal(chart) {
     overlay.style.display = 'block';
     window.currentChart = chart;
 
-    // Attach event listeners to buttons
     const cancelBtn = document.querySelector('.cancel-btn');
     const saveBtn = document.querySelector('.save-btn');
 
-    // Remove existing listeners to prevent duplicates
     const cancelClone = cancelBtn.cloneNode(true);
     const saveClone = saveBtn.cloneNode(true);
     cancelBtn.parentNode.replaceChild(cancelClone, cancelBtn);
     saveBtn.parentNode.replaceChild(saveClone, saveBtn);
 
     cancelClone.addEventListener('click', closeMAModal);
-    saveClone.addEventListener('click', saveMAModal);
+    saveClone.addEventListener('click', () => saveMAModal(chart));
 }
 
 export function closeMAModal() {
@@ -39,8 +37,7 @@ export function closeMAModal() {
     document.getElementById('tool-ma').classList.remove('active');
 }
 
-export function saveMAModal() {
-    const chart = window.currentChart;
+export function saveMAModal(chart) {
     const inputs = [
         { enabled: 'ma1-enabled', period: 'ma1-period', color: 'ma1-color' },
         { enabled: 'ma2-enabled', period: 'ma2-period', color: 'ma2-color' },

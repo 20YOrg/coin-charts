@@ -1,33 +1,134 @@
-import * as XLSX from 'xlsx';
+export const AXIS_MARGIN = 90;
+export const LABEL_MARGIN = 30;
+export const CANDLE_SPACING = 2;
+export const PRICE_STEPS = 5;
 
-export const gk_isXlsx = false;
-export const gk_xlsxFileLookup = {};
-export const gk_fileData = {};
-
-export function filledCell(cell) {
-    return cell !== '' && cell != null;
+export function distanceToLineSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared === 0) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+    let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
 }
 
-export function loadFileData(filename) {
-    if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-        try {
-            const workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-            const firstSheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-            const filteredData = jsonData.filter(row => row.some(filledCell));
-            let headerRowIndex = filteredData.findIndex((row, index) =>
-                row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-            );
-            if (headerRowIndex === -1 || headerRowIndex > 25) {
-                headerRowIndex = 0;
+export function getLineParameters(line) {
+    if (!line || !line.scaleType) {
+        console.warn('Invalid line for parameters:', line);
+        return { m: 0, b: 0 };
+    }
+    let x1, y1, x2, y2;
+    if (line.type === 'infinite') {
+        x1 = line.point1?.x ?? 0;
+        y1 = line.point1?.y ?? 0;
+        x2 = line.point2?.x ?? 0;
+        y2 = line.point2?.y ?? 0;
+    } else {
+        x1 = line.start?.x ?? 0;
+        y1 = line.start?.y ?? 0;
+        x2 = line.end?.x ?? 0;
+        y2 = line.end?.y ?? 0;
+    }
+    let m, b;
+    const dx = x2 - x1;
+    if (Math.abs(dx) < 0.0001) {
+        m = Infinity;
+        b = x1;
+    } else if (line.scaleType === 'logarithmic') {
+        const logY1 = Math.log10(Math.max(y1, 0.01));
+        const logY2 = Math.log10(Math.max(y2, 0.01));
+        m = (logY2 - logY1) / dx;
+        b = logY1 - m * x1;
+    } else {
+        m = (y2 - y1) / dx;
+        b = y1 - m * x1;
+    }
+    console.log('Line parameters:', { m, b, line });
+    return { m, b };
+}
+
+export function getLinePoints(chart, line, width, height, candleWidth, spacing, numPoints) {
+    if (!chart || !chart.view || !chart.dataManager || !line) {
+        console.error('Invalid arguments for getLinePoints:', { chart, line });
+        return [];
+    }
+    const points = [];
+    let xMin, xMax;
+    if (line.type === 'infinite') {
+        xMin = Math.max(0, -chart.view.offsetX / (candleWidth + spacing) - 10);
+        xMax = Math.min(chart.dataManager.data.length - 1, (width - AXIS_MARGIN - chart.view.offsetX) / (candleWidth + spacing) + 10);
+    } else {
+        xMin = Math.min(line.start?.x ?? 0, line.end?.x ?? 0);
+        xMax = Math.max(line.start?.x ?? 0, line.end?.x ?? 0);
+    }
+    const { m, b } = getLineParameters(line);
+    const dx = xMax === xMin ? 0.0001 : (xMax - xMin) / (numPoints - 1);
+
+    if (m === Infinity) {
+        const x = b;
+        const canvasX = x * (candleWidth + spacing) + chart.view.offsetX;
+        if (canvasX >= -candleWidth && canvasX <= width - AXIS_MARGIN) {
+            points.push({ x: canvasX, y: 0 });
+            points.push({ x: canvasX, y: height });
+        }
+    } else {
+        for (let i = 0; i < numPoints; i++) {
+            const x = xMin + i * dx;
+            let price;
+            if (line.scaleType === 'logarithmic') {
+                price = Math.pow(10, m * x + b);
+            } else {
+                price = m * x + b;
             }
-            const csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
-            return XLSX.utils.sheet_to_csv(csv, { header: 1 });
-        } catch (e) {
-            console.error(e);
-            return "";
+            price = Math.max(price, 0.01);
+            const canvasX = x * (candleWidth + spacing) + chart.view.offsetX;
+            const canvasY = priceToY(price, height, chart.view, chart.options.scaleType);
+            if (canvasX >= -candleWidth && canvasX <= width - AXIS_MARGIN && isFinite(canvasY)) {
+                points.push({ x: canvasX, y: canvasY });
+            }
         }
     }
-    return gk_fileData[filename] || "";
+    console.log('Line points:', { line, points });
+    return points;
+}
+
+export function priceToY(price, height, view, scaleType) {
+    price = Math.max(price, 0.01);
+    if (scaleType === 'logarithmic') {
+        const logPrice = Math.log10(price);
+        const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 0.01);
+        return height - ((logPrice - view.minLogPrice) / logRange) * height + view.offsetY;
+    } else {
+        const priceRange = Math.max(view.maxPrice - view.minPrice, 0.01);
+        return height - ((price - view.minPrice) / priceRange) * height + view.offsetY;
+    }
+}
+
+export function yToPrice(y, height, view, scaleType) {
+    y = Math.max(0, Math.min(height, y)) - view.offsetY;
+    if (scaleType === 'logarithmic') {
+        const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 0.01);
+        const logPrice = view.minLogPrice + (1 - y / height) * logRange;
+        return Math.max(Math.pow(10, logPrice), 0.01);
+    } else {
+        const priceRange = Math.max(view.maxPrice - view.minPrice, 0.01);
+        return Math.max(view.minPrice + (1 - y / height) * priceRange, 0.01);
+    }
+}
+
+export function formatDate(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return '';
+    const date = new Date(dateStr);
+    return isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
+}
+
+export function debounce(func, wait) {
+    let timeout;
+    return function (...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
 }

@@ -1,4 +1,8 @@
 import { DataManager } from './data-manager.js';
+import { initEvents } from './events.js';
+import { renderGrid, renderCandles, renderCrosshair, renderLines } from './rendering.js';
+import { renderIndicators } from './indicators.js';
+import { priceToY, yToPrice, formatDate, AXIS_MARGIN, LABEL_MARGIN, CANDLE_SPACING, PRICE_STEPS } from './utils.js';
 
 export class Chart {
     constructor(canvas, options = {}) {
@@ -44,15 +48,14 @@ export class Chart {
         this.isMovingLine = false;
 
         this.resize();
-        this.initEvents();
+        initEvents(this);
         this.dataManager.setData(options.data || []);
         const width = this.canvas.offsetWidth;
         const lastIndex = this.dataManager.data.length - 1;
-        this.view.offsetX = (width - 90 - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + 2));
+        this.view.offsetX = (width - AXIS_MARGIN - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + CANDLE_SPACING));
         this.render();
     }
 
-    // Move all methods from the original Chart class here
     resize() {
         const dpr = window.devicePixelRatio || 1;
         this.canvas.width = this.canvas.offsetWidth * dpr;
@@ -60,440 +63,8 @@ export class Chart {
         this.ctx.scale(dpr, dpr);
         const width = this.canvas.offsetWidth;
         const lastIndex = this.dataManager.data.length - 1;
-        this.view.offsetX = (width - 90 - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + 2));
+        this.view.offsetX = (width - AXIS_MARGIN - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + CANDLE_SPACING));
         this.render();
-    }
-
-    distanceToLineSegment(px, py, x1, y1, x2, y2) {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const lengthSquared = dx * dx + dy * dy;
-        if (lengthSquared === 0) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
-        let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
-        t = Math.max(0, Math.min(1, t));
-        const projX = x1 + t * dx;
-        const projY = y1 + t * dy;
-        return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
-    }
-
-    getLineParameters(line) {
-        if (line.type === 'infinite') {
-            const x1 = line.point1.x;
-            const y1 = line.point1.y;
-            const x2 = line.point2.x;
-            const y2 = line.point2.y;
-            let m, b;
-            if (line.scaleType === 'logarithmic') {
-                const logY1 = Math.log10(Math.max(y1, 0.01));
-                const logY2 = Math.log10(Math.max(y2, 0.01));
-                m = (logY2 - logY1) / (x2 - x1 || 0.0001);
-                b = logY1 - m * x1;
-            } else {
-                m = (y2 - y1) / (x2 - x1 || 0.0001);
-                b = y1 - m * x1;
-            }
-            return { m, b };
-        } else {
-            const x1 = line.start.x;
-            const y1 = line.start.y;
-            const x2 = line.end.x;
-            const y2 = line.end.y;
-            let m, b;
-            if (line.scaleType === 'logarithmic') {
-                const logY1 = Math.log10(Math.max(y1, 0.01));
-                const logY2 = Math.log10(Math.max(y2, 0.01));
-                m = (logY2 - logY1) / (x2 - x1 || 0.0001);
-                b = logY1 - m * x1;
-            } else {
-                m = (y2 - y1) / (x2 - x1 || 0.0001);
-                b = y1 - m * x1;
-            }
-            return { m, b };
-        }
-    }
-
-    getLinePoints(line, width, height, candleWidth, spacing, numPoints) {
-        const points = [];
-        let xMin, xMax;
-        if (line.type === 'infinite') {
-            xMin = Math.max(0, -this.view.offsetX / (candleWidth + spacing) - 10);
-            xMax = Math.min(this.dataManager.data.length - 1, (width - 90 - this.view.offsetX) / (candleWidth + spacing) + 10);
-        } else {
-            xMin = Math.min(line.start.x, line.end.x);
-            xMax = Math.max(line.start.x, line.end.x);
-        }
-        const { m, b } = this.getLineParameters(line);
-        const dx = (xMax - xMin) / (numPoints - 1) || 0.0001;
-
-        for (let i = 0; i < numPoints; i++) {
-            const x = xMin + i * dx;
-            let price;
-            if (line.scaleType === 'logarithmic') {
-                price = Math.pow(10, m * x + b);
-            } else {
-                price = m * x + b;
-            }
-            price = Math.max(price, 0.01);
-            const canvasX = x * (candleWidth + spacing) + this.view.offsetX;
-            const canvasY = this.priceToY(price, height);
-            if (canvasX >= -candleWidth && canvasX <= width - 90 && isFinite(canvasY)) {
-                points.push({ x: canvasX, y: canvasY });
-            }
-        }
-        return points;
-    }
-
-    initEvents() {
-        this.canvas.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const rect = this.canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-            const width = this.canvas.offsetWidth;
-            const height = this.canvas.offsetHeight;
-            const axisMargin = 30;
-            const chartHeight = height - axisMargin;
-
-            if (mouseX <= width - 90 && mouseY <= chartHeight) {
-                const deltaX = -e.deltaY * 0.5;
-                const zoomFactor = 1 - deltaX * 0.002;
-                const oldScaleX = this.view.scaleX;
-                const oldCandleWidth = this.options.candleWidth * oldScaleX;
-                const oldSpacing = 2;
-                const lastIndex = this.dataManager.data.length - 1;
-                const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + this.view.offsetX) + oldCandleWidth / 2;
-
-                this.view.scaleX *= zoomFactor;
-                this.view.scaleX = Math.max(0.0001, this.view.scaleX);
-                const newCandleWidth = this.options.candleWidth * this.view.scaleX;
-                const newSpacing = 2;
-                this.view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
-
-                this.render();
-            }
-        });
-
-        this.canvas.addEventListener('mousedown', (e) => {
-            if (e.button === 0) {
-                const rect = this.canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                const width = this.canvas.offsetWidth;
-                const height = this.canvas.offsetHeight - 30;
-
-                if (mouseX > width - 90) {
-                    this.isResizingY = true;
-                    this.lastMouseY = mouseY;
-                    this.canvas.style.cursor = 'ns-resize';
-                    return;
-                } else if (mouseY > height) {
-                    this.isResizingX = true;
-                    this.lastMouseX = mouseX;
-                    this.canvas.style.cursor = 'ew-resize';
-                    return;
-                }
-
-                if (mouseX <= width - 90 && mouseY <= height) {
-                    const candleWidth = this.options.candleWidth * this.view.scaleX;
-                    const spacing = 2;
-                    let minDistance = Infinity;
-                    let closestLineIndex = -1;
-                    this.lines.forEach((line, index) => {
-                        const points = this.getLinePoints(line, width, height, candleWidth, spacing, 50);
-                        for (let i = 0; i < points.length - 1; i++) {
-                            const x1 = points[i].x;
-                            const y1 = points[i].y;
-                            const x2 = points[i + 1].x;
-                            const y2 = points[i + 1].y;
-                            const distance = this.distanceToLineSegment(mouseX, mouseY, x1, y1, x2, y2);
-                            if (distance < minDistance && distance < 5) {
-                                minDistance = distance;
-                                closestLineIndex = index;
-                            }
-                        }
-                    });
-
-                    if (closestLineIndex !== -1 && !this.isDrawingLine && !this.isDrawingInfiniteLine) {
-                        this.selectedLineIndex = closestLineIndex;
-                        this.isMovingLine = true;
-                        this.lastMouseX = mouseX;
-                        this.lastMouseY = mouseY;
-                        this.canvas.style.cursor = 'pointer';
-                        this.render();
-                        return;
-                    }
-
-                    if (this.isDrawingLine) {
-                        const chartX = (mouseX - this.view.offsetX) / (this.options.candleWidth * this.view.scaleX + 2);
-                        const chartY = this.yToPrice(mouseY, height);
-                        if (this.lineStartPoint === null) {
-                            this.lineStartPoint = { x: chartX, y: chartY };
-                        } else {
-                            this.lines.push({
-                                type: 'finite',
-                                start: this.lineStartPoint,
-                                end: { x: chartX, y: chartY },
-                                scaleType: this.options.scaleType
-                            });
-                            this.lineStartPoint = null;
-                            this.render();
-                        }
-                    } else if (this.isDrawingInfiniteLine) {
-                        const chartX = (mouseX - this.view.offsetX) / (this.options.candleWidth * this.view.scaleX + 2);
-                        const chartY = this.yToPrice(mouseY, height);
-                        if (this.lineStartPoint === null) {
-                            this.lineStartPoint = { x: chartX, y: chartY };
-                        } else {
-                            this.lines.push({
-                                type: 'infinite',
-                                point1: this.lineStartPoint,
-                                point2: { x: chartX, y: chartY },
-                                scaleType: this.options.scaleType
-                            });
-                            this.lineStartPoint = null;
-                            this.render();
-                        }
-                    } else {
-                        this.selectedLineIndex = -1;
-                        this.isDragging = true;
-                        this.lastMouseX = e.clientX;
-                        this.lastMouseY = e.clientY;
-                        this.render();
-                    }
-                } else {
-                    this.selectedLineIndex = -1;
-                    this.isDragging = true;
-                    this.lastMouseX = e.clientX;
-                    this.lastMouseY = e.clientY;
-                    this.render();
-                }
-            }
-        });
-
-        this.canvas.addEventListener('mousemove', (e) => {
-            const rect = this.canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-            const width = this.canvas.offsetWidth;
-            const height = this.canvas.offsetHeight;
-            const axisMargin = 30;
-            const chartHeight = height - axisMargin;
-
-            if (this.isResizingY) {
-                const dy = mouseY - this.lastMouseY;
-                const zoomFactor = 1 - dy * 0.002;
-                const centerPrice = this.yToPrice(chartHeight / 2, chartHeight);
-
-                if (this.options.scaleType === 'logarithmic') {
-                    const logRange = this.view.maxLogPrice - this.view.minLogPrice;
-                    const newLogRange = Math.max(logRange / zoomFactor, 0.01);
-                    const logMid = (this.view.maxLogPrice + this.view.minLogPrice) / 2;
-                    this.view.minLogPrice = logMid - newLogRange / 2;
-                    this.view.maxLogPrice = logMid + newLogRange / 2;
-                    this.view.minPrice = Math.pow(10, this.view.minLogPrice);
-                    this.view.maxPrice = Math.pow(10, this.view.maxLogPrice);
-                } else {
-                    const priceRange = this.view.maxPrice - this.view.minPrice;
-                    const newPriceRange = Math.max(priceRange / zoomFactor, 0.01);
-                    const priceMid = (this.view.maxPrice + this.view.minPrice) / 2;
-                    this.view.minPrice = Math.max(priceMid - newPriceRange / 2, 0.01);
-                    this.view.maxPrice = priceMid + newPriceRange / 2;
-                    this.view.minLogPrice = Math.log10(this.view.minPrice);
-                    this.view.maxLogPrice = Math.log10(this.view.maxPrice);
-                }
-
-                const newCenterY = this.priceToY(centerPrice, chartHeight);
-                this.view.offsetY += (chartHeight / 2) - newCenterY;
-
-                this.lastMouseY = mouseY;
-                this.canvas.style.cursor = 'ns-resize';
-                this.render();
-            } else if (this.isResizingX) {
-                const dx = mouseX - this.lastMouseX;
-                const zoomFactor = 1 - dx * 0.002;
-                const oldScaleX = this.view.scaleX;
-                const oldCandleWidth = this.options.candleWidth * oldScaleX;
-                const oldSpacing = 2;
-                const lastIndex = this.dataManager.data.length - 1;
-                const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + this.view.offsetX) + oldCandleWidth / 2;
-
-                this.view.scaleX *= zoomFactor;
-                this.view.scaleX = Math.max(0.0001, this.view.scaleX);
-                const newCandleWidth = this.options.candleWidth * this.view.scaleX;
-                const newSpacing = 2;
-                this.view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
-                this.lastMouseX = mouseX;
-                this.canvas.style.cursor = 'ew-resize';
-                this.render();
-            } else if (this.isDragging) {
-                const dx = e.clientX - this.lastMouseX;
-                const dy = e.clientY - this.lastMouseY;
-                const pixelPerCandle = Math.max(0.0001, this.options.candleWidth * this.view.scaleX + 2);
-                const sensitivityX = 10;
-                const sensitivityY = 1.5;
-                const priceRange = Math.max(this.view.maxPrice - this.view.minPrice, 0.01);
-                const priceDelta = this.yToPrice(chartHeight / 2, chartHeight) - this.yToPrice(chartHeight / 2 + dy, chartHeight);
-
-                this.view.offsetX += (dx / pixelPerCandle) * sensitivityX;
-                this.view.offsetY += (priceDelta / priceRange) * chartHeight * sensitivityY;
-
-                this.lastMouseX = e.clientX;
-                this.lastMouseY = e.clientY;
-                this.canvas.style.cursor = 'move';
-                this.render();
-            } else if (this.isMovingLine && this.selectedLineIndex !== -1) {
-                const candleWidth = this.options.candleWidth * this.view.scaleX;
-                const spacing = 2;
-                const dx = (mouseX - this.lastMouseX) / (candleWidth + spacing);
-                const dy = this.yToPrice(mouseY, chartHeight) - this.yToPrice(this.lastMouseY, chartHeight);
-                const line = this.lines[this.selectedLineIndex];
-                if (line.type === 'finite') {
-                    line.start.x += dx;
-                    line.start.y += dy;
-                    line.end.x += dx;
-                    line.end.y += dy;
-                } else {
-                    line.point1.x += dx;
-                    line.point1.y += dy;
-                    line.point2.x += dx;
-                    line.point2.y += dy;
-                }
-                this.lastMouseX = mouseX;
-                this.lastMouseY = mouseY;
-                this.canvas.style.cursor = 'pointer';
-                this.render();
-            } else if (this.showCrosshair && !this.isDrawingLine && !this.isDrawingInfiniteLine) {
-                if (mouseX > width - 90) {
-                    this.crosshair = null;
-                    this.canvas.style.cursor = 'ns-resize';
-                } else if (mouseY > chartHeight) {
-                    this.crosshair = null;
-                    this.canvas.style.cursor = 'ew-resize';
-                } else {
-                    this.crosshair = { x: mouseX, y: mouseY };
-                    const candleWidth = this.options.candleWidth * this.view.scaleX;
-                    const spacing = 2;
-                    let isNearLine = false;
-                    for (let line of this.lines) {
-                        const points = this.getLinePoints(line, width, height, candleWidth, spacing, 50);
-                        for (let i = 0; i < points.length - 1; i++) {
-                            const x1 = points[i].x;
-                            const y1 = points[i].y;
-                            const x2 = points[i + 1].x;
-                            const y2 = points[i + 1].y;
-                            const distance = this.distanceToLineSegment(mouseX, mouseY, x1, y1, x2, y2);
-                            if (distance < 5) {
-                                isNearLine = true;
-                                break;
-                            }
-                        }
-                        if (isNearLine) break;
-                    }
-                    this.canvas.style.cursor = isNearLine ? 'pointer' : 'default';
-                }
-                this.render();
-            } else {
-                this.canvas.style.cursor = 'default';
-            }
-        });
-
-        document.addEventListener('mouseup', (e) => {
-            if (e.button === 0) {
-                this.isDragging = false;
-                this.isMovingLine = false;
-                this.isResizingY = false;
-                this.isResizingX = false;
-                this.canvas.style.cursor = 'default';
-            }
-        });
-
-        this.canvas.addEventListener('mouseleave', () => {
-            if (this.isDragging || this.isResizingY || this.isResizingX || this.isMovingLine) {
-                this.isDragging = false;
-                this.isMovingLine = false;
-                this.isResizingY = false;
-                this.isResizingX = false;
-                this.canvas.style.cursor = 'default';
-                this.render();
-            }
-        });
-
-        document.addEventListener('keydown', (e) => {
-            if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedLineIndex !== -1) {
-                this.lines.splice(this.selectedLineIndex, 1);
-                this.selectedLineIndex = -1;
-                this.render();
-            }
-        });
-
-        const scaleSelect = document.getElementById('scale-select');
-        scaleSelect.addEventListener('change', (e) => {
-            this.options.scaleType = e.target.value;
-            this.render();
-        });
-
-        const crosshairButton = document.getElementById('tool-crosshair');
-        crosshairButton.classList.add('active');
-        crosshairButton.addEventListener('click', () => {
-            this.showCrosshair = !this.showCrosshair;
-            this.isDrawingLine = false;
-            this.isDrawingInfiniteLine = false;
-            this.lineStartPoint = null;
-            this.selectedLineIndex = -1;
-            crosshairButton.classList.toggle('active');
-            lineButton.classList.remove('active');
-            infiniteLineButton.classList.remove('active');
-            this.render();
-        });
-
-        const maButton = document.getElementById('tool-ma');
-        maButton.addEventListener('click', () => {
-            openMAModal(this);
-        });
-
-        const lineButton = document.getElementById('tool-line');
-        lineButton.addEventListener('click', () => {
-            this.isDrawingLine = !this.isDrawingLine;
-            this.isDrawingInfiniteLine = false;
-            this.showCrosshair = !this.isDrawingLine;
-            this.lineStartPoint = null;
-            this.selectedLineIndex = -1;
-            lineButton.classList.toggle('active');
-            crosshairButton.classList.toggle('active', !this.isDrawingLine);
-            infiniteLineButton.classList.remove('active');
-            this.render();
-        });
-
-        const infiniteLineButton = document.getElementById('tool-infinite-line');
-        infiniteLineButton.addEventListener('click', () => {
-            this.isDrawingInfiniteLine = !this.isDrawingInfiniteLine;
-            this.isDrawingLine = false;
-            this.showCrosshair = !this.isDrawingInfiniteLine;
-            this.lineStartPoint = null;
-            this.selectedLineIndex = -1;
-            infiniteLineButton.classList.toggle('active');
-            crosshairButton.classList.toggle('active', !this.isDrawingInfiniteLine);
-            lineButton.classList.remove('active');
-            this.render();
-        });
-
-        const resetButton = document.getElementById('tool-reset');
-        resetButton.addEventListener('click', () => {
-            this.view.offsetX = (this.canvas.offsetWidth - 90 - 20) - ((this.dataManager.data.length - 1) * (this.options.candleWidth * 1 + 2));
-            this.view.offsetY = 0;
-            this.view.scaleX = 1;
-            this.view.minPrice = 0;
-            this.view.maxPrice = 100;
-            this.lines = [];
-            this.selectedLineIndex = -1;
-            this.isDrawingLine = false;
-            this.isDrawingInfiniteLine = false;
-            this.lineStartPoint = null;
-            this.calculatePriceRange();
-            this.render();
-        });
-
-        window.addEventListener('resize', () => this.resize());
     }
 
     calculatePriceRange() {
@@ -510,164 +81,6 @@ export class Chart {
         }
     }
 
-    priceToY(price, height) {
-        price = Math.max(price, 0.01);
-        if (this.options.scaleType === 'logarithmic') {
-            const logPrice = Math.log10(price);
-            const logRange = Math.max(this.view.maxLogPrice - this.view.minLogPrice, 0.01);
-            return height - ((logPrice - this.view.minLogPrice) / logRange) * height + this.view.offsetY;
-        } else {
-            const priceRange = Math.max(this.view.maxPrice - this.view.minPrice, 0.01);
-            return height - ((price - this.view.minPrice) / priceRange) * height + this.view.offsetY;
-        }
-    }
-
-    yToPrice(y, height) {
-        y = Math.max(0, Math.min(height, y)) - this.view.offsetY;
-        if (this.options.scaleType === 'logarithmic') {
-            const logRange = Math.max(this.view.maxLogPrice - this.view.minLogPrice, 0.01);
-            const logPrice = this.view.minLogPrice + (1 - y / height) * logRange;
-            return Math.max(Math.pow(10, logPrice), 0.01);
-        } else {
-            const priceRange = Math.max(this.view.maxPrice - this.view.minPrice, 0.01);
-            return Math.max(this.view.minPrice + (1 - y / height) * priceRange, 0.01);
-        }
-    }
-
-    formatDate(dateStr) {
-        if (!dateStr || typeof dateStr !== 'string') return '';
-        const date = new Date(dateStr);
-        return isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
-    }
-
-    calculateMovingAverage(period) {
-        const maData = [];
-        for (let i = 0; i < this.dataManager.data.length; i++) {
-            if (i < period - 1) {
-                maData.push(null);
-                continue;
-            }
-            const sum = this.dataManager.data.slice(i - period + 1, i + 1).reduce((acc, d) => acc + d.close, 0);
-            maData.push(sum / period);
-        }
-        return maData;
-    }
-
-    renderIndicators() {
-        const width = this.canvas.offsetWidth;
-        const chartHeight = this.canvas.offsetHeight - 30;
-        const candleWidth = this.options.candleWidth * this.view.scaleX;
-        const spacing = 2;
-
-        this.movingAverages.forEach((ma, index) => {
-            if (!ma.enabled) return;
-            const maData = this.calculateMovingAverage(ma.period);
-            this.ctx.strokeStyle = ma.color;
-            this.ctx.beginPath();
-            maData.forEach((value, i) => {
-                if (value === null) return;
-                const x = (i * (candleWidth + spacing) + this.view.offsetX);
-                if (x < -candleWidth || x > width - 90) return;
-                const y = this.priceToY(value, chartHeight);
-                if (i === 0 || maData[i - 1] === null) this.ctx.moveTo(x, y);
-                else this.ctx.lineTo(x, y);
-            });
-            this.ctx.stroke();
-        });
-    }
-
-    renderCrosshair() {
-        if (!this.showCrosshair || !this.crosshair || this.isDrawingLine || this.isDrawingInfiniteLine) return;
-        const { x, y } = this.crosshair;
-        const width = this.canvas.offsetWidth;
-        const chartHeight = this.canvas.offsetHeight - 30;
-        const labelMargin = 30; // Match grid's label margin
-
-        this.ctx.strokeStyle = '#666';
-        this.ctx.setLineDash([5, 5]);
-        this.ctx.beginPath();
-        this.ctx.moveTo(x, 0); // Start vertical line at top grid margin
-        this.ctx.lineTo(x, chartHeight - labelMargin); // End at bottom grid margin
-        this.ctx.moveTo(0, y);
-        this.ctx.lineTo(width - 90, y);
-        this.ctx.stroke();
-        this.ctx.setLineDash([]);
-
-        const price = this.yToPrice(y, chartHeight);
-        const candleWidth = this.options.candleWidth * this.view.scaleX;
-        const spacing = 2;
-        const candleIndex = Math.round((x - this.view.offsetX) / (candleWidth + spacing));
-        if (candleIndex < 0 || candleIndex >= this.dataManager.data.length) return;
-        const time = this.dataManager.data[candleIndex]?.time || '';
-
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        this.ctx.fillRect(x + 10, y - 30, 120, 40);
-        this.ctx.fillStyle = '#fff';
-        this.ctx.font = '12px Arial';
-        this.ctx.fillText(`Price: ${price.toFixed(2)}`, x + 15, y - 15);
-        this.ctx.fillText(`Time: ${this.formatDate(time)}`, x + 15, y);
-    }
-
-    renderLines() {
-        const width = this.canvas.offsetWidth;
-        const chartHeight = this.canvas.offsetHeight - 30;
-        const candleWidth = this.options.candleWidth * this.view.scaleX;
-        const spacing = 2;
-
-        this.lines.forEach((line, index) => {
-            const isSelected = index === this.selectedLineIndex;
-            this.ctx.strokeStyle = isSelected ? 'blue' : 'red';
-            this.ctx.lineWidth = isSelected ? 4 : 2;
-            const points = this.getLinePoints(line, width, chartHeight, candleWidth, spacing, 50);
-            this.ctx.beginPath();
-            for (let i = 0; i < points.length; i++) {
-                const { x, y } = points[i];
-                if (i === 0) this.ctx.moveTo(x, y);
-                else this.ctx.lineTo(x, y);
-            }
-            this.ctx.stroke();
-        });
-        this.ctx.lineWidth = 1;
-    }
-
-    renderGrid() {
-        const width = this.canvas.offsetWidth;
-        const height = this.canvas.offsetHeight;
-        const axisMargin = 30;
-        const chartHeight = height - axisMargin;
-        const candleWidth = this.options.candleWidth * this.view.scaleX;
-        const spacing = 2;
-
-        this.ctx.strokeStyle = this.options.gridColor;
-        this.ctx.lineWidth = 1;
-
-        const priceSteps = 5;
-        const labelMargin = 30;
-        for (let i = 0; i <= priceSteps; i++) {
-            const y = labelMargin + ((chartHeight - 2 * labelMargin) * i) / priceSteps;
-            this.ctx.beginPath();
-            this.ctx.moveTo(0, chartHeight - y);
-            this.ctx.lineTo(width - 90, chartHeight - y);
-            this.ctx.stroke();
-        }
-
-        const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
-        this.ctx.font = '12px Arial';
-        const textWidth = this.ctx.measureText('2025-01-01').width;
-        const textCenterOffset = 20 + (textWidth / 2);
-        this.dataManager.data.forEach((candle, i) => {
-            if (i % labelInterval === 0) {
-                const x = (i * (candleWidth + spacing) + this.view.offsetX);
-                if (x >= 0 && x <= width - 90) {
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(x + textCenterOffset, 0);
-                    this.ctx.lineTo(x + textCenterOffset, chartHeight - labelMargin);
-                    this.ctx.stroke();
-                }
-            }
-        });
-    }
-
     render() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.fillStyle = this.options.background;
@@ -678,50 +91,22 @@ export class Chart {
         this.calculatePriceRange();
         const width = this.canvas.offsetWidth;
         const height = this.canvas.offsetHeight;
-        const axisMargin = 30;
-        const chartHeight = height - axisMargin;
+        const chartHeight = height - AXIS_MARGIN;
         const candleWidth = this.options.candleWidth * this.view.scaleX;
-        const spacing = 2;
+        const spacing = CANDLE_SPACING;
 
-        this.renderGrid();
+        renderGrid(this.ctx, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
+        renderCandles(this.ctx, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
+        renderIndicators(this.ctx, this.movingAverages, this.dataManager.data, this.view, width, height, candleWidth, spacing, this.options.scaleType);
+        renderLines(this.ctx, this.lines, this.selectedLineIndex, this, width, height, candleWidth, spacing);
+        renderCrosshair(this.ctx, this.crosshair, this.showCrosshair, this.isDrawingLine, this.isDrawingInfiniteLine, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
 
-        const startIndex = Math.max(0, Math.floor(-this.view.offsetX / (candleWidth + spacing)));
-        const endIndex = Math.min(this.dataManager.data.length, Math.ceil((width - 90 - this.view.offsetX) / (candleWidth + spacing)));
-
-        this.dataManager.data.slice(startIndex, endIndex).forEach((candle, i) => {
-            const trueIndex = startIndex + i;
-            const x = (trueIndex * (candleWidth + spacing) + this.view.offsetX);
-            if (x < -candleWidth || x > width - 90) return;
-
-            const isUp = candle.close >= candle.open;
-            this.ctx.fillStyle = isUp ? this.options.upColor : this.options.downColor;
-
-            const highY = this.priceToY(candle.high, chartHeight);
-            const lowY = this.priceToY(candle.low, chartHeight);
-            this.ctx.beginPath();
-            this.ctx.moveTo(x + candleWidth / 2, highY);
-            this.ctx.lineTo(x + candleWidth / 2, lowY);
-            this.ctx.strokeStyle = this.ctx.fillStyle;
-            this.ctx.stroke();
-
-            const openY = this.priceToY(candle.open, chartHeight);
-            const closeY = this.priceToY(candle.close, chartHeight);
-            const bodyHeight = Math.abs(openY - closeY);
-            const bodyY = Math.min(openY, closeY);
-            this.ctx.fillRect(x, bodyY, candleWidth, bodyHeight);
-        });
-
-        this.renderIndicators();
-        this.renderLines();
-        this.renderCrosshair();
-
+        // Render axis labels
         this.ctx.fillStyle = this.options.axisColor;
         this.ctx.font = '12px Arial';
-        const priceSteps = 5;
-        const labelMargin = 30;
-        for (let i = 0; i <= priceSteps; i++) {
-            const y = labelMargin + ((chartHeight - 2 * labelMargin) * i) / priceSteps;
-            const price = this.view.minPrice + (i / priceSteps) * (this.view.maxPrice - this.view.minPrice);
+        for (let i = 0; i <= PRICE_STEPS; i++) {
+            const y = LABEL_MARGIN + ((chartHeight - 2 * LABEL_MARGIN) * i) / PRICE_STEPS;
+            const price = this.view.minPrice + (i / PRICE_STEPS) * (this.view.maxPrice - this.view.minPrice);
             this.ctx.fillText(price.toFixed(2), width - 75, chartHeight - y + 4);
         }
 
@@ -729,8 +114,8 @@ export class Chart {
         this.dataManager.data.forEach((candle, i) => {
             if (i % labelInterval === 0) {
                 const x = (i * (candleWidth + spacing) + this.view.offsetX);
-                if (x >= 0 && x <= width - 90) {
-                    this.ctx.fillText(this.formatDate(candle.time), x + 20, chartHeight + 10);
+                if (x >= 0 && x <= width - AXIS_MARGIN) {
+                    this.ctx.fillText(formatDate(candle.time), x + 20, chartHeight + 10);
                 }
             }
         });
