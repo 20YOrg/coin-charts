@@ -19,12 +19,13 @@ export function initEvents(chart) {
             const deltaX = -e.deltaY * 0.5;
             const zoomFactor = 1 - deltaX * 0.002;
             const oldScaleX = view.scaleX;
-            view.scaleX = Math.min(Math.max(oldScaleX * zoomFactor, 0.1), 10); // Limit scaleX: 0.1 to 10
             const oldCandleWidth = options.candleWidth * oldScaleX;
             const oldSpacing = CANDLE_SPACING;
             const lastIndex = dataManager.data.length - 1;
             const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + view.offsetX) + oldCandleWidth / 2;
 
+            view.scaleX *= zoomFactor;
+            view.scaleX = Math.max(0.0001, view.scaleX);
             const newCandleWidth = options.candleWidth * view.scaleX;
             const newSpacing = CANDLE_SPACING;
             view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
@@ -50,7 +51,14 @@ export function initEvents(chart) {
             return;
         } else if (mouseY > height) {
             chart.isResizingX = true;
-            chart.lastMouseX = candleWidth = options.candleWidth * view.scaleX;
+            chart.lastMouseX = mouseX;
+            canvas.style.cursor = 'ew-resize';
+            console.log('Resizing X axis');
+            return;
+        }
+
+        if (mouseX <= width - AXIS_MARGIN && mouseY <= height) {
+            const candleWidth = options.candleWidth * view.scaleX;
             const spacing = CANDLE_SPACING;
             let minDistance = Infinity;
             let closestLineIndex = -1;
@@ -134,7 +142,8 @@ export function initEvents(chart) {
         if (chart.isResizingY) {
             const dy = mouseY - chart.lastMouseY;
             const zoomFactor = 1 - dy * 0.002;
-            view.scaleY = Math.min(Math.max(view.scaleY * zoomFactor, 0.1), 10); // Limit scaleY: 0.1 to 10
+            view.scaleY *= zoomFactor;
+            view.scaleY = Math.max(0.0001, view.scaleY);
             chart.lastMouseY = mouseY;
             canvas.style.cursor = 'ns-resize';
             chart.render();
@@ -142,12 +151,13 @@ export function initEvents(chart) {
             const dx = mouseX - chart.lastMouseX;
             const zoomFactor = 1 - dx * 0.002;
             const oldScaleX = view.scaleX;
-            view.scaleX = Math.min(Math.max(oldScaleX * zoomFactor, 0.1), 10); // Limit scaleX: 0.1 to 10
             const oldCandleWidth = options.candleWidth * oldScaleX;
             const oldSpacing = CANDLE_SPACING;
             const lastIndex = dataManager.data.length - 1;
             const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + view.offsetX) + oldCandleWidth / 2;
 
+            view.scaleX *= zoomFactor;
+            view.scaleX = Math.max(0.0001, view.scaleX);
             const newCandleWidth = options.candleWidth * view.scaleX;
             const newSpacing = CANDLE_SPACING;
             view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);

@@ -114,7 +114,7 @@ export class Chart {
         const priceRange = this.view.maxPrice - this.view.minPrice;
         const targetPixelSpacing = 75; // Desired pixel spacing between labels
         // Estimate price interval for ~75px spacing
-        const testPrice = this.view.minPrice + (priceRange > 1 ? 1 : priceRange / 10);
+        const testPrice = this.view.minPrice + 1; // Use 1 or a small increment
         const testY = priceToY(this.view.minPrice, chartHeight, this.view, this.options.scaleType);
         const testY2 = priceToY(testPrice, chartHeight, this.view, this.options.scaleType);
         const pixelsPerPrice = Math.abs(testY - testY2) / Math.abs(testPrice - this.view.minPrice);
