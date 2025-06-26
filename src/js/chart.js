@@ -17,6 +17,8 @@ export class Chart {
             axisColor: options.axisColor || '#000000',
             scaleType: options.scaleType || 'linear',
             gridColor: options.gridColor || '#F3F3F3',
+            minScale: options.minScale || 0.1, // Minimum zoom level
+            maxScale: options.maxScale || 10,  // Maximum zoom level
         };
         this.view = {
             offsetX: 0,
@@ -63,6 +65,7 @@ export class Chart {
         this.ctx.scale(dpr, dpr);
         const width = this.canvas.offsetWidth;
         const lastIndex = this.dataManager.data.length - 1;
+        this.view.scaleX = Math.max(this.options.minScale, Math.min(this.options.maxScale, this.view.scaleX));
         this.view.offsetX = (width - AXIS_MARGIN - 20) - (lastIndex * (this.options.candleWidth * this.view.scaleX + CANDLE_SPACING));
         this.render();
     }

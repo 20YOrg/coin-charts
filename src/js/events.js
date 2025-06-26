@@ -25,7 +25,7 @@ export function initEvents(chart) {
             const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + view.offsetX) + oldCandleWidth / 2;
 
             view.scaleX *= zoomFactor;
-            view.scaleX = Math.max(0.0001, view.scaleX);
+            view.scaleX = Math.max(options.minScale, Math.min(options.maxScale, view.scaleX));
             const newCandleWidth = options.candleWidth * view.scaleX;
             const newSpacing = CANDLE_SPACING;
             view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
@@ -143,7 +143,7 @@ export function initEvents(chart) {
             const dy = mouseY - chart.lastMouseY;
             const zoomFactor = 1 - dy * 0.002;
             view.scaleY *= zoomFactor;
-            view.scaleY = Math.max(0.0001, view.scaleY);
+            view.scaleY = Math.max(options.minScale, Math.min(options.maxScale, view.scaleY));
             chart.lastMouseY = mouseY;
             canvas.style.cursor = 'ns-resize';
             chart.render();
@@ -157,7 +157,7 @@ export function initEvents(chart) {
             const currentX = (lastIndex * (oldCandleWidth + oldSpacing) + view.offsetX) + oldCandleWidth / 2;
 
             view.scaleX *= zoomFactor;
-            view.scaleX = Math.max(0.0001, view.scaleX);
+            view.scaleX = Math.max(options.minScale, Math.min(options.maxScale, view.scaleX));
             const newCandleWidth = options.candleWidth * view.scaleX;
             const newSpacing = CANDLE_SPACING;
             view.offsetX = currentX - newCandleWidth / 2 - lastIndex * (newCandleWidth + newSpacing);
