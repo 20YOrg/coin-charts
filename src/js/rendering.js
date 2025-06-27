@@ -1,4 +1,4 @@
-import { priceToY, yToPrice, formatDate, getLinePoints, AXIS_MARGIN, LABEL_MARGIN, CANDLE_SPACING, PRICE_STEPS } from './utils.js';
+import { priceToY, yToPrice, formatDate, getLinePoints, generateFutureDate, AXIS_MARGIN, LABEL_MARGIN, CANDLE_SPACING, PRICE_STEPS } from './utils.js';
 
 export function renderGrid(ctx, options, data, view, width, height, candleWidth, spacing) {
     const chartHeight = height - AXIS_MARGIN;
@@ -6,6 +6,7 @@ export function renderGrid(ctx, options, data, view, width, height, candleWidth,
     ctx.strokeStyle = options.gridColor;
     ctx.lineWidth = 1;
 
+    // Draw horizontal price grid lines
     for (let i = 0; i <= PRICE_STEPS; i++) {
         const y = LABEL_MARGIN + ((chartHeight - 2 * LABEL_MARGIN) * i) / PRICE_STEPS;
         ctx.beginPath();
@@ -14,21 +15,38 @@ export function renderGrid(ctx, options, data, view, width, height, candleWidth,
         ctx.stroke();
     }
 
+    // Draw vertical time grid lines, including future dates
     const labelInterval = Math.max(1, Math.floor(150 / (candleWidth + spacing)));
     ctx.font = '12px Arial';
     const textWidth = ctx.measureText('2025-01-01').width;
     const textCenterOffset = 20 + (textWidth / 2);
-    data.forEach((candle, i) => {
-        if (i % labelInterval === 0) {
-            const x = (i * (candleWidth + spacing) + view.offsetX);
-            if (x >= 0 && x <= width - AXIS_MARGIN) {
-                ctx.beginPath();
-                ctx.moveTo(x + textCenterOffset, 0);
-                ctx.lineTo(x + textCenterOffset, chartHeight - LABEL_MARGIN);
-                ctx.stroke();
+
+    // Calculate the visible range of candle indices
+    const startIndex = Math.floor(-view.offsetX / (candleWidth + spacing));
+    const endIndex = Math.ceil((width - AXIS_MARGIN - view.offsetX) / (candleWidth + spacing));
+
+    // Draw grid lines and labels for both past and future
+    for (let i = startIndex; i <= endIndex; i += labelInterval) {
+        const x = (i * (candleWidth + spacing) + view.offsetX);
+        if (x >= 0 && x <= width - AXIS_MARGIN) {
+            ctx.beginPath();
+            ctx.moveTo(x + textCenterOffset, 0);
+            ctx.lineTo(x + textCenterOffset, chartHeight - LABEL_MARGIN);
+            ctx.stroke();
+
+            // Determine the time for the label
+            let time;
+            if (i >= 0 && i < data.length) {
+                time = data[i]?.time || '';
+            } else if (i >= data.length && data.length > 0) {
+                time = generateFutureDate(data, i);
+            } else {
+                continue; // Skip invalid indices
             }
+            ctx.fillStyle = options.axisColor;
+            ctx.fillText(formatDate(time), x + 20, chartHeight + 10);
         }
-    });
+    }
 }
 
 export function renderCandles(ctx, options, data, view, width, height, candleWidth, spacing) {
@@ -65,6 +83,7 @@ export function renderCrosshair(ctx, crosshair, showCrosshair, isDrawingLine, is
     const { x, y } = crosshair;
     const chartHeight = height - AXIS_MARGIN;
 
+    // Draw crosshair lines
     ctx.strokeStyle = '#666';
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
@@ -75,11 +94,24 @@ export function renderCrosshair(ctx, crosshair, showCrosshair, isDrawingLine, is
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Calculate price and time
     const price = yToPrice(y, chartHeight, view, options.scaleType);
     const candleIndex = Math.round((x - view.offsetX) / (candleWidth + spacing));
-    if (candleIndex < 0 || candleIndex >= data.length) return;
-    const time = data[candleIndex]?.time || '';
+    let time = '';
 
+    // Always show time, including future dates
+    if (data.length > 0) {
+        if (candleIndex >= 0 && candleIndex < data.length) {
+            time = data[candleIndex]?.time || '';
+        } else if (candleIndex >= data.length) {
+            time = generateFutureDate(data, candleIndex);
+        } else {
+            // For negative indices, use the first candle's time or empty
+            time = data[0]?.time || '';
+        }
+    }
+
+    // Draw price and time box
     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
     ctx.fillRect(x + 10, y - 30, 120, 40);
     ctx.fillStyle = '#fff';

@@ -59,7 +59,8 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
     let xMin, xMax;
     if (line.type === 'infinite') {
         xMin = Math.max(0, -chart.view.offsetX / (candleWidth + spacing) - 10);
-        xMax = Math.min(chart.dataManager.data.length - 1, (width - AXIS_MARGIN - chart.view.offsetX) / (candleWidth + spacing) + 10);
+        // Extend far into the future (1000 candles beyond visible range)
+        xMax = (width - AXIS_MARGIN - chart.view.offsetX) / (candleWidth + spacing) + 1000;
     } else {
         xMin = Math.min(line.start?.x ?? 0, line.end?.x ?? 0);
         xMax = Math.max(line.start?.x ?? 0, line.end?.x ?? 0);
@@ -133,4 +134,17 @@ export function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(() => func.apply(this, args), wait);
     };
+}
+
+export function generateFutureDate(data, targetIndex) {
+    if (!data || data.length === 0) return '';
+    const lastCandle = data[data.length - 1];
+    const secondLastCandle = data[data.length - 2] || lastCandle;
+    const lastDate = new Date(lastCandle.time);
+    if (isNaN(lastDate.getTime())) return '';
+    const timeDiffMs = new Date(lastCandle.time) - new Date(secondLastCandle.time) || 24 * 60 * 60 * 1000; // Default to 1 day
+    const daysIntoFuture = (targetIndex - (data.length - 1)) * (timeDiffMs / (24 * 60 * 60 * 1000));
+    const futureDate = new Date(lastDate);
+    futureDate.setDate(lastDate.getDate() + Math.round(daysIntoFuture));
+    return futureDate.toISOString().split('T')[0];
 }
