@@ -11,55 +11,203 @@
 </head>
 
 <body>
-    <div id="chart-container">
-        <canvas id="chart"></canvas>
-        <div id="controls">
-            <label for="scale-select">Price Scale: </label>
+    <div id="controls">
+        <div class="symbol-block" aria-label="Current symbol">
+            <span class="symbol-name">BTCUSD</span>
+            <span class="symbol-meta">Bitcoin / U.S. Dollar</span>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="control-row control-chip">
+            <label for="interval-select">Candle</label>
+            <select id="interval-select">
+                <option value="1D">1D</option>
+                <option value="3D">3D</option>
+                <option value="1W">1W</option>
+                <option value="1M">1M</option>
+                <option value="3M">3M</option>
+                <option value="6M">6M</option>
+            </select>
+        </div>
+        <div class="control-row custom-interval control-chip">
+            <label for="custom-interval-value">Custom</label>
+            <input id="custom-interval-value" type="number" min="1" max="999" value="9">
+            <select id="custom-interval-unit">
+                <option value="D">days</option>
+                <option value="W">weeks</option>
+                <option value="M">months</option>
+            </select>
+            <button id="custom-interval-apply" type="button">Set</button>
+        </div>
+        <div class="control-row control-chip">
+            <label for="scale-select">Scale</label>
             <select id="scale-select">
                 <option value="linear">Linear</option>
                 <option value="logarithmic">Logarithmic</option>
             </select>
         </div>
+    </div>
+    <div id="chart-container">
+        <canvas id="chart"></canvas>
         <div id="tool-menu">
-            <button id="tool-crosshair" title="Toggle Crosshair">✛</button>
-            <button id="tool-ma" title="Configure Moving Average">📈</button>
-            <button id="tool-line" title="Draw Finite Line">
-                <svg width="20" height="20" viewBox="0 0 20 20">
-                    <line x1="6.121" y1="13.879" x2="13.879" y2="6.121" stroke="#333" stroke-width="1.5" />
-                    <circle cx="4" cy="16" r="2" fill="none" stroke="#333" stroke-width="2" />
-                    <circle cx="16" cy="4" r="2" fill="none" stroke="#333" stroke-width="2" />
+            <button id="tool-crosshair" title="Toggle Crosshair" aria-label="Toggle Crosshair">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M9 2v14M2 9h14" />
                 </svg>
             </button>
-            <button id="tool-infinite-line" title="Draw Infinite Line"><span>↔</span></button>
-            <button id="tool-reset" title="Reset View">↻</button>
+            <button id="tool-ma" title="Configure Moving Average" aria-label="Configure Moving Average">
+                <span class="tool-text">MA</span>
+            </button>
+            <button id="tool-line" title="Draw Finite Line">
+                <svg width="20" height="20" viewBox="0 0 20 20">
+                    <line x1="5" y1="15" x2="15" y2="5" />
+                    <circle cx="5" cy="15" r="2" />
+                    <circle cx="15" cy="5" r="2" />
+                </svg>
+            </button>
+            <button id="tool-infinite-line" title="Draw Infinite Line" aria-label="Draw Infinite Line">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M3 15 15 3" />
+                    <path d="M10 3h5v5" />
+                    <path d="M8 15H3v-5" />
+                </svg>
+            </button>
+            <button id="tool-fibonacci" title="Draw Fibonacci Levels" aria-label="Draw Fibonacci Levels">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M4 4h10" />
+                    <path d="M4 7h8" />
+                    <path d="M4 10h10" />
+                    <path d="M4 13h6" />
+                    <path d="M4 3v12" />
+                </svg>
+            </button>
+            <button id="tool-reset" title="Reset View" aria-label="Reset View">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M14.5 6.5A6 6 0 1 0 15 9" />
+                    <path d="M14.5 2.5v4h-4" />
+                </svg>
+            </button>
         </div>
+        <div id="line-toolbar" hidden>
+            <div class="toolbar-color color-control" title="Line color">
+                <button id="line-color-button" class="color-button" type="button" aria-label="Line color">
+                    <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true">
+                        <path d="M3 12.5h11" />
+                        <path d="M4 10.5 11.5 3" />
+                    </svg>
+                    <span class="color-swatch-label">Line</span>
+                    <span id="line-color-swatch" class="toolbar-swatch"></span>
+                </button>
+                <input id="line-color" type="hidden" value="#2962ff">
+                <div id="line-color-menu" class="color-menu" hidden></div>
+            </div>
+            <label class="toolbar-select" title="Line style">
+                <span>Style</span>
+                <select id="line-style" aria-label="Line style">
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                </select>
+            </label>
+            <select id="line-width" title="Line width" aria-label="Line width">
+                <option value="1">1px</option>
+                <option value="2" selected>2px</option>
+                <option value="3">3px</option>
+                <option value="4">4px</option>
+            </select>
+            <div class="toolbar-color color-control" title="Text color">
+                <button id="line-text-color-button" class="color-button" type="button" aria-label="Text color">
+                    <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true">
+                        <path d="M5 13h7" />
+                        <path d="M8.5 4v9" />
+                        <path d="M5.5 4h6" />
+                    </svg>
+                    <span class="color-swatch-label">Text</span>
+                    <span id="line-text-color-swatch" class="toolbar-swatch"></span>
+                </button>
+                <input id="line-text-color" type="hidden" value="#131722">
+                <div id="line-text-color-menu" class="color-menu" hidden></div>
+            </div>
+            <button id="line-lock" type="button" title="Lock line" aria-label="Lock line">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <rect x="4" y="8" width="10" height="7" rx="1.5" />
+                    <path d="M6 8V6a3 3 0 0 1 6 0v2" />
+                </svg>
+            </button>
+            <button id="line-delete" type="button" title="Delete line" aria-label="Delete line">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M3 5h12" />
+                    <path d="M7 5V3h4v2" />
+                    <path d="M5 5l1 10h6l1-10" />
+                </svg>
+            </button>
+        </div>
+        <input id="line-text-editor" type="text" maxlength="48" autocomplete="off" spellcheck="false" hidden>
+    </div>
+    <div id="range-bar">
+        <div class="range-selector" aria-label="Visible range">
+            <button class="range-button" type="button" data-range="1D">1D</button>
+            <button class="range-button" type="button" data-range="5D">5D</button>
+            <button class="range-button" type="button" data-range="1M">1M</button>
+            <button class="range-button" type="button" data-range="3M">3M</button>
+            <button class="range-button" type="button" data-range="6M">6M</button>
+            <button class="range-button" type="button" data-range="YTD">YTD</button>
+            <button class="range-button" type="button" data-range="1Y">1Y</button>
+            <button class="range-button" type="button" data-range="5Y">5Y</button>
+            <button class="range-button" type="button" data-range="ALL">All</button>
+        </div>
+        <div id="range-status" aria-live="polite"></div>
     </div>
     <div id="modal-overlay"></div>
     <div id="ma-modal">
-        <h3>Configure Moving Averages</h3>
-        <div class="ma-config">
-            <label>
-                <input type="checkbox" id="ma1-enabled" checked>
-                Moving Average 1
-            </label>
-            <input type="number" id="ma1-period" value="5" min="1" placeholder="Period">
-            <input type="color" id="ma1-color" value="#0000FF">
+        <div class="modal-header">
+            <h3>Moving Averages</h3>
         </div>
-        <div class="ma-config">
-            <label>
-                <input type="checkbox" id="ma2-enabled">
-                Moving Average 2
-            </label>
-            <input type="number" id="ma2-period" value="10" min="1" placeholder="Period">
-            <input type="color" id="ma2-color" value="#FF0000">
-        </div>
-        <div class="ma-config">
-            <label>
-                <input type="checkbox" id="ma3-enabled">
-                Moving Average 3
-            </label>
-            <input type="number" id="ma3-period" value="20" min="1" placeholder="Period">
-            <input type="color" id="ma3-color" value="#00FF00">
+        <div class="ma-list">
+            <div class="ma-config">
+                <label class="ma-enabled">
+                    <input type="checkbox" id="ma1-enabled" checked>
+                    <span></span>
+                </label>
+                <div class="ma-name">MA 1</div>
+                <label class="ma-field">
+                    <span>Length</span>
+                    <input type="number" id="ma1-period" value="5" min="1" placeholder="Period">
+                </label>
+                <label class="ma-color">
+                    <span>Color</span>
+                    <input type="color" id="ma1-color" value="#0000FF">
+                </label>
+            </div>
+            <div class="ma-config">
+                <label class="ma-enabled">
+                    <input type="checkbox" id="ma2-enabled">
+                    <span></span>
+                </label>
+                <div class="ma-name">MA 2</div>
+                <label class="ma-field">
+                    <span>Length</span>
+                    <input type="number" id="ma2-period" value="10" min="1" placeholder="Period">
+                </label>
+                <label class="ma-color">
+                    <span>Color</span>
+                    <input type="color" id="ma2-color" value="#FF0000">
+                </label>
+            </div>
+            <div class="ma-config">
+                <label class="ma-enabled">
+                    <input type="checkbox" id="ma3-enabled">
+                    <span></span>
+                </label>
+                <div class="ma-name">MA 3</div>
+                <label class="ma-field">
+                    <span>Length</span>
+                    <input type="number" id="ma3-period" value="20" min="1" placeholder="Period">
+                </label>
+                <label class="ma-color">
+                    <span>Color</span>
+                    <input type="color" id="ma3-color" value="#00FF00">
+                </label>
+            </div>
         </div>
         <div class="modal-buttons">
             <button class="cancel-btn">Cancel</button>

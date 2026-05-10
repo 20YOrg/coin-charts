@@ -7,10 +7,10 @@ if (typeof btcUsdData !== 'undefined') {
     const chart = new Chart(canvas, {
         data: btcUsdData,
         candleWidth: 10,
-        upColor: '#F08852',
-        downColor: '#6D96E7',
+        upColor: '#089981',
+        downColor: '#F23645',
         background: '#FFFFFF',
-        axisColor: '#333333',
+        axisColor: '#131722',
         scaleType: 'linear',
     });
 

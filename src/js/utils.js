@@ -1,7 +1,51 @@
-export const AXIS_MARGIN = 90;
+export const AXIS_MARGIN = 74;
+export const TIME_AXIS_HEIGHT = 34;
 export const LABEL_MARGIN = 30;
 export const CANDLE_SPACING = 2;
 export const PRICE_STEPS = 5;
+
+export function parseDateUTC(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return isNaN(date.getTime()) ? null : date;
+}
+
+export function toISODate(date) {
+    return date.toISOString().split('T')[0];
+}
+
+export function addMonthsClamped(date, monthDelta) {
+    const targetMonth = date.getUTCMonth() + monthDelta;
+    const targetYear = date.getUTCFullYear() + Math.floor(targetMonth / 12);
+    const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+    const daysInTargetMonth = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate();
+    const targetDay = Math.min(date.getUTCDate(), daysInTargetMonth);
+    return new Date(Date.UTC(targetYear, normalizedMonth, targetDay));
+}
+
+export function generateMonthTicks(startDateStr, endDateStr) {
+    const startDate = parseDateUTC(startDateStr);
+    const endDate = parseDateUTC(endDateStr);
+    if (!startDate || !endDate || startDate > endDate) return [];
+
+    const ticks = [];
+    let cursor = new Date(startDate.getTime());
+    while (cursor <= endDate) {
+        ticks.push(toISODate(cursor));
+        const next = addMonthsClamped(cursor, 1);
+        if (next.getTime() === cursor.getTime()) break;
+        cursor = next;
+    }
+
+    const endISO = toISODate(endDate);
+    if (ticks[ticks.length - 1] !== endISO) {
+        ticks.push(endISO);
+    }
+
+    return ticks;
+}
 
 export function distanceToLineSegment(px, py, x1, y1, x2, y2) {
     const dx = x2 - x1;
@@ -15,8 +59,8 @@ export function distanceToLineSegment(px, py, x1, y1, x2, y2) {
     return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
 }
 
-export function getLineParameters(line) {
-    if (!line || !line.scaleType) {
+export function getLineParameters(line, scaleType = 'linear') {
+    if (!line) {
         console.warn('Invalid line for parameters:', line);
         return { m: 0, b: 0 };
     }
@@ -34,10 +78,11 @@ export function getLineParameters(line) {
     }
     let m, b;
     const dx = x2 - x1;
+    const lineScaleType = line.scaleType || scaleType;
     if (Math.abs(dx) < 0.0001) {
         m = Infinity;
         b = x1;
-    } else if (line.scaleType === 'logarithmic') {
+    } else if (lineScaleType === 'logarithmic') {
         const logY1 = Math.log10(Math.max(y1, 1e-10));
         const logY2 = Math.log10(Math.max(y2, 1e-10));
         m = (logY2 - logY1) / dx;
@@ -46,7 +91,6 @@ export function getLineParameters(line) {
         m = (y2 - y1) / dx;
         b = y1 - m * x1;
     }
-    console.log('Line parameters:', { m, b, line });
     return { m, b };
 }
 
@@ -57,15 +101,17 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
     }
     const points = [];
     let xMin, xMax;
+    const slotWidth = candleWidth + spacing;
+    const chartWidth = width - AXIS_MARGIN;
     if (line.type === 'infinite') {
-        xMin = Math.max(0, -chart.view.offsetX / (candleWidth + spacing) - 10);
-        // Extend far into the future (1000 candles beyond visible range)
-        xMax = (width - AXIS_MARGIN - chart.view.offsetX) / (candleWidth + spacing) + 1000;
+        xMin = (-chart.view.offsetX / slotWidth) - 2;
+        xMax = ((chartWidth - chart.view.offsetX) / slotWidth) + 2;
     } else {
         xMin = Math.min(line.start?.x ?? 0, line.end?.x ?? 0);
         xMax = Math.max(line.start?.x ?? 0, line.end?.x ?? 0);
     }
-    const { m, b } = getLineParameters(line);
+    const lineScaleType = line.scaleType || chart.options.scaleType;
+    const { m, b } = getLineParameters(line, lineScaleType);
     const dx = xMax === xMin ? 0.0001 : (xMax - xMin) / (numPoints - 1);
 
     if (m === Infinity) {
@@ -79,12 +125,11 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
         for (let i = 0; i < numPoints; i++) {
             const x = xMin + i * dx;
             let price;
-            if (line.scaleType === 'logarithmic') {
+            if (lineScaleType === 'logarithmic') {
                 price = Math.pow(10, m * x + b);
             } else {
                 price = m * x + b;
             }
-            price = Math.max(price, 1e-10);
             const canvasX = x * (candleWidth + spacing) + chart.view.offsetX;
             const canvasY = priceToY(price, height, chart.view, chart.options.scaleType);
             if (canvasX >= -candleWidth && canvasX <= width - AXIS_MARGIN && isFinite(canvasY)) {
@@ -92,14 +137,12 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
             }
         }
     }
-    console.log('Line points:', { line, points });
     return points;
 }
 
 export function priceToY(price, height, view, scaleType) {
-    price = Math.max(price, 1e-10);
     if (scaleType === 'logarithmic') {
-        const logPrice = Math.log10(price);
+        const logPrice = Math.log10(Math.max(price, 1e-10));
         const logRange = Math.max(view.maxLogPrice - view.minLogPrice, 1e-10);
         const normalized = (logPrice - view.minLogPrice) / logRange;
         return height - normalized * height * view.scaleY + view.offsetY;
@@ -118,7 +161,7 @@ export function yToPrice(y, height, view, scaleType) {
         return Math.max(Math.pow(10, logPrice), 1e-10);
     } else {
         const priceRange = Math.max(view.maxPrice - view.minPrice, 1e-10);
-        return Math.max(view.minPrice + normalizedY * priceRange, 1e-10);
+        return view.minPrice + normalizedY * priceRange;
     }
 }
 
@@ -134,17 +177,4 @@ export function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(() => func.apply(this, args), wait);
     };
-}
-
-export function generateFutureDate(data, targetIndex) {
-    if (!data || data.length === 0) return '';
-    const lastCandle = data[data.length - 1];
-    const secondLastCandle = data[data.length - 2] || lastCandle;
-    const lastDate = new Date(lastCandle.time);
-    if (isNaN(lastDate.getTime())) return '';
-    const timeDiffMs = new Date(lastCandle.time) - new Date(secondLastCandle.time) || 24 * 60 * 60 * 1000; // Default to 1 day
-    const daysIntoFuture = (targetIndex - (data.length - 1)) * (timeDiffMs / (24 * 60 * 60 * 1000));
-    const futureDate = new Date(lastDate);
-    futureDate.setDate(lastDate.getDate() + Math.round(daysIntoFuture));
-    return futureDate.toISOString().split('T')[0];
 }
