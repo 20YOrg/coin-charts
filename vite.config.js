@@ -4,4 +4,7 @@ export default {
         outDir: '../dist',
         emptyOutDir: true,
     },
+    preview: {
+        allowedHosts: ['charts.20y.org'],
+    },
 };
