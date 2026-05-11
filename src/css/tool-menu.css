@@ -231,3 +231,36 @@
 #line-text-editor[hidden] {
     display: none;
 }
+
+@media (max-width: 720px) {
+    #tool-menu {
+        left: 8px;
+        top: 8px;
+        width: auto;
+        max-width: calc(100% - 16px);
+        flex-direction: row;
+        padding: 4px;
+        border: 1px solid #e0e3eb;
+        border-radius: 8px;
+        box-shadow: 0 6px 16px rgba(19, 23, 34, 0.12);
+    }
+
+    #tool-menu button {
+        width: 34px;
+        height: 34px;
+    }
+
+    #line-toolbar {
+        left: 8px;
+        right: 8px;
+        top: 52px;
+        width: auto;
+        height: 40px;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    #line-toolbar::-webkit-scrollbar {
+        display: none;
+    }
+}

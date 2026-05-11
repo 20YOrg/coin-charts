@@ -234,3 +234,81 @@ canvas {
     font-size: 12px;
     text-align: right;
 }
+
+@media (max-width: 720px) {
+    body {
+        height: 100dvh;
+    }
+
+    #controls {
+        flex: 0 0 42px;
+        height: 42px;
+        padding: 0 6px;
+        gap: 4px;
+        scrollbar-width: none;
+    }
+
+    #controls::-webkit-scrollbar,
+    #range-bar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .symbol-block {
+        gap: 0;
+        padding: 0 4px;
+    }
+
+    .symbol-meta,
+    #range-status,
+    .custom-label {
+        display: none;
+    }
+
+    .toolbar-divider {
+        margin: 0;
+    }
+
+    .control-chip {
+        height: 30px;
+        padding: 0 3px 0 6px;
+    }
+
+    .inline-divider {
+        margin: 0 1px;
+    }
+
+    #interval-select {
+        width: 64px;
+    }
+
+    #custom-interval-value {
+        width: 44px;
+    }
+
+    #custom-interval-unit {
+        width: 74px;
+    }
+
+    #custom-interval-apply {
+        min-width: 34px;
+        padding: 0 7px;
+    }
+
+    #scale-select {
+        width: 106px;
+    }
+
+    #range-bar {
+        flex: 0 0 40px;
+        height: 40px;
+        padding: 0 8px;
+        gap: 8px;
+        scrollbar-width: none;
+    }
+
+    .range-button {
+        height: 30px;
+        padding: 0 8px;
+        font-size: 14px;
+    }
+}

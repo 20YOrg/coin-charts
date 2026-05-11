@@ -499,8 +499,13 @@ export class Chart {
         return price.toLocaleString('en-US', { maximumFractionDigits: 6 });
     }
 
+    isCompactViewport() {
+        return this.canvas.offsetWidth <= 720;
+    }
+
     getNicePriceStep(range, chartHeight) {
-        const targetTickCount = Math.max(2, Math.floor(chartHeight / 92));
+        const targetSpacing = this.isCompactViewport() ? 132 : 92;
+        const targetTickCount = Math.max(2, Math.floor(chartHeight / targetSpacing));
         const rawStep = range / targetTickCount;
         const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(rawStep, 1e-10))));
         const normalized = rawStep / magnitude;
@@ -512,7 +517,8 @@ export class Chart {
     }
 
     getStablePriceStep(range, chartHeight) {
-        const targetTickCount = Math.max(2, Math.floor(chartHeight / 92));
+        const targetSpacing = this.isCompactViewport() ? 132 : 92;
+        const targetTickCount = Math.max(2, Math.floor(chartHeight / targetSpacing));
         const currentStep = this.view.priceStep;
         if (currentStep) {
             const currentTickCount = range / currentStep;
@@ -669,7 +675,8 @@ export class Chart {
                 - startDate.getUTCMonth()
                 + 1
         );
-        const maxTimeTicks = Math.max(2, Math.floor(chartWidth / 105));
+        const minTimeLabelSpacing = this.isCompactViewport() ? 118 : 105;
+        const maxTimeTicks = Math.max(2, Math.floor(chartWidth / minTimeLabelSpacing));
 
         if (spanDays > 90) {
             const monthIntervals = [1, 2, 3, 6, 12, 24, 60];
@@ -701,18 +708,44 @@ export class Chart {
     }
 
     getTimeTicks(startIndex, endIndex, candleWidth, spacing, chartWidth) {
+        const minSpacing = this.isCompactViewport() ? 98 : 76;
+        const filterOverlaps = (ticks) => {
+            let lastX = -Infinity;
+            return ticks
+                .sort((a, b) => a.x - b.x)
+                .filter((tick) => {
+                    if (tick.x < 8 || tick.x > chartWidth - 8) return false;
+                    if (tick.x - lastX < minSpacing) return false;
+                    lastX = tick.x;
+                    return true;
+                });
+        };
+
         if (this.view.timeRange?.tickDates?.length) {
-            return this.view.timeRange.tickDates.map((dateStr) => {
+            return filterOverlaps(this.view.timeRange.tickDates.map((dateStr) => {
                 const index = this.getIndexForDate(parseDateUTC(dateStr));
                 const x = index * (candleWidth + spacing) + this.view.offsetX;
                 return { x, label: formatDate(dateStr), emphasis: false };
             }).filter(({ x }, index) => {
                 const dateIndex = this.getIndexForDate(parseDateUTC(this.view.timeRange.tickDates[index]));
                 return dateIndex >= 0 && x >= 0 && x <= chartWidth;
-            });
+            }));
         }
 
-        return this.getCalendarTimeTicks(startIndex, endIndex, candleWidth, spacing, chartWidth);
+        return filterOverlaps(this.getCalendarTimeTicks(startIndex, endIndex, candleWidth, spacing, chartWidth));
+    }
+
+    getDrawablePriceTicks(priceTicks, chartHeight) {
+        const minSpacing = this.isCompactViewport() ? 44 : 30;
+        const sorted = [...priceTicks].sort((a, b) => a.y - b.y);
+        const drawable = [];
+        sorted.forEach((tick) => {
+            if (tick.y < 14 || tick.y > chartHeight - 14) return;
+            const last = drawable[drawable.length - 1];
+            if (last && tick.y - last.y < minSpacing) return;
+            drawable.push(tick);
+        });
+        return drawable;
     }
 
     renderLastPriceMarker(chartWidth, chartHeight) {
@@ -809,7 +842,7 @@ export class Chart {
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
 
-        priceTicks.forEach(({ y, label }) => {
+        this.getDrawablePriceTicks(priceTicks, chartHeight).forEach(({ y, label }) => {
             this.ctx.fillText(label, chartWidth + 8, y);
         });
 
@@ -817,7 +850,8 @@ export class Chart {
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         timeTicks.forEach(({ x, label, emphasis }) => {
-            this.ctx.font = `${emphasis ? '600' : '400'} 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+            const fontSize = this.isCompactViewport() ? 12 : 13;
+            this.ctx.font = `${emphasis ? '600' : '400'} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
             this.ctx.fillText(label, x, timeAxisCenterY);
         });
 

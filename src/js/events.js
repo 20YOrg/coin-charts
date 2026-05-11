@@ -159,6 +159,19 @@ function mutateSelectedLine(chart, updater) {
     chart.render();
 }
 
+function cloneDrawing(line) {
+    return JSON.parse(JSON.stringify(line));
+}
+
+function isEditableTarget(target) {
+    if (!target) return false;
+    const tagName = target.tagName?.toLowerCase();
+    return tagName === 'input'
+        || tagName === 'textarea'
+        || tagName === 'select'
+        || target.isContentEditable;
+}
+
 function getLineTextPlacement(chart, line, width, chartHeight, text = '') {
     if (!line || (!line.start && !line.point1)) return null;
     if (line.type === 'fibonacci') return null;
@@ -358,6 +371,65 @@ export function initEvents(chart) {
         if (date) point.time = toISODate(date);
     }
 
+    function offsetDrawingPoint(point, chartHeight) {
+        if (!point) return;
+        const priceTop = yToPrice(0, chartHeight, chart.view, chart.options.scaleType);
+        const priceOffset = yToPrice(28, chartHeight, chart.view, chart.options.scaleType);
+        if (chart.options.scaleType === 'logarithmic') {
+            const ratio = priceTop / Math.max(priceOffset, 1e-10);
+            point.y *= Number.isFinite(ratio) && ratio > 0 ? ratio : 1.04;
+        } else {
+            point.y += priceTop - priceOffset;
+        }
+    }
+
+    function offsetDrawingObject(line, chartHeight) {
+        if (!line) return;
+        if (line.type === 'finite') {
+            offsetDrawingPoint(line.start, chartHeight);
+            offsetDrawingPoint(line.end, chartHeight);
+        } else {
+            offsetDrawingPoint(line.point1, chartHeight);
+            offsetDrawingPoint(line.point2, chartHeight);
+        }
+    }
+
+    function pasteCopiedDrawing() {
+        if (!chart.copiedDrawing) return;
+        const pastedLine = cloneDrawing(chart.copiedDrawing);
+        offsetDrawingObject(pastedLine, canvas.offsetHeight - TIME_AXIS_HEIGHT);
+        lines.push(pastedLine);
+        chart.selectedLineIndex = lines.length - 1;
+        chart.hoveredLineIndex = -1;
+        chart.activeLineHandle = null;
+        chart.isMovingLine = false;
+        chart.copiedDrawing = cloneDrawing(pastedLine);
+        syncLineToolbar(chart);
+        chart.render();
+    }
+
+    function getTouchPoint(touch, rect) {
+        return {
+            x: touch.clientX - rect.left,
+            y: touch.clientY - rect.top,
+        };
+    }
+
+    function getTouchCenter(touches, rect) {
+        const first = getTouchPoint(touches[0], rect);
+        const second = getTouchPoint(touches[1], rect);
+        return {
+            x: (first.x + second.x) / 2,
+            y: (first.y + second.y) / 2,
+        };
+    }
+
+    function getTouchDistance(touches) {
+        const dx = touches[0].clientX - touches[1].clientX;
+        const dy = touches[0].clientY - touches[1].clientY;
+        return Math.hypot(dx, dy);
+    }
+
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         closeLineTextEditor(true);
@@ -386,6 +458,142 @@ export function initEvents(chart) {
             chart.zoomPriceAt(mouseY, chartHeight, Math.exp(-wheelY * 0.00045));
             chart.requestRender();
         }
+    }, { passive: false });
+
+    canvas.addEventListener('touchstart', (e) => {
+        if (!e.touches.length) return;
+        e.preventDefault();
+        stopInertia(chart);
+        closeLineTextEditor(true);
+        closeColorMenus();
+
+        const rect = canvas.getBoundingClientRect();
+        const height = canvas.offsetHeight - TIME_AXIS_HEIGHT;
+
+        chart.touchMoved = false;
+        chart.touchLastTime = performance.now();
+
+        if (e.touches.length >= 2) {
+            chart.touchMode = 'pinch';
+            chart.lastTouchDistance = getTouchDistance(e.touches);
+            chart.lastTouchCenter = getTouchCenter(e.touches, rect);
+            chart.crosshair = null;
+            return;
+        }
+
+        const point = getTouchPoint(e.touches[0], rect);
+        chart.touchMode = 'pan';
+        chart.lastMouseX = point.x;
+        chart.lastMouseY = point.y;
+        chart.lastDragTime = performance.now();
+
+        if (isDrawingAnyTool() && point.x <= canvas.offsetWidth - AXIS_MARGIN && point.y <= height) {
+            chart.touchMode = 'draw';
+            chart.snapPoint = getSnappedDrawingPoint(chart, point.x, point.y, height);
+            chart.requestRender();
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+        if (!chart.touchMode || !e.touches.length) return;
+        e.preventDefault();
+
+        const rect = canvas.getBoundingClientRect();
+        const width = canvas.offsetWidth;
+        const chartHeight = canvas.offsetHeight - TIME_AXIS_HEIGHT;
+
+        if (chart.touchMode === 'pinch' && e.touches.length >= 2) {
+            const distance = getTouchDistance(e.touches);
+            const center = getTouchCenter(e.touches, rect);
+            const factor = Math.max(0.92, Math.min(1.08, distance / Math.max(1, chart.lastTouchDistance || distance)));
+            chart.zoomTimeAt(Math.min(width - AXIS_MARGIN, Math.max(0, center.x)), factor);
+            chart.lastTouchDistance = distance;
+            chart.lastTouchCenter = center;
+            chart.touchMoved = true;
+            chart.requestRender();
+            return;
+        }
+
+        const point = getTouchPoint(e.touches[0], rect);
+        const dx = point.x - chart.lastMouseX;
+        const dy = point.y - chart.lastMouseY;
+        if (Math.hypot(dx, dy) > 3) chart.touchMoved = true;
+
+        if (chart.touchMode === 'draw') {
+            if (point.x <= width - AXIS_MARGIN && point.y <= chartHeight) {
+                chart.snapPoint = getSnappedDrawingPoint(chart, point.x, point.y, chartHeight);
+            }
+            chart.requestRender();
+        } else {
+            const panX = dx * 0.72;
+            view.offsetX += panX;
+            chart.panPriceByPixels(dy, chartHeight);
+            chart.clearTimeRange();
+
+            const now = performance.now();
+            const dt = Math.max(1, now - (chart.touchLastTime || now));
+            chart.dragVelocityX = panX / dt;
+            chart.dragVelocityY = dy / dt;
+            chart.touchLastTime = now;
+            chart.requestRender();
+        }
+
+        chart.lastMouseX = point.x;
+        chart.lastMouseY = point.y;
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+        if (!chart.touchMode) return;
+        e.preventDefault();
+
+        const chartHeight = canvas.offsetHeight - TIME_AXIS_HEIGHT;
+        if (chart.touchMode === 'draw' && !chart.touchMoved && chart.snapPoint) {
+            if (chart.lineStartPoint === null) {
+                chart.lineStartPoint = chart.snapPoint;
+            } else {
+                const lineEndPoint = { x: chart.snapPoint.x, y: chart.snapPoint.y, time: chart.snapPoint.time };
+                const newLine = {
+                    type: chart.isDrawingFibonacci ? 'fibonacci' : chart.isDrawingLine ? 'finite' : 'infinite',
+                    scaleType: options.scaleType,
+                    color: '#2962ff',
+                    width: 2,
+                    style: 'solid',
+                    text: '',
+                    textColor: '#131722',
+                    locked: false,
+                    start: chart.isDrawingLine ? { ...chart.lineStartPoint } : undefined,
+                    end: chart.isDrawingLine ? lineEndPoint : undefined,
+                    point1: (chart.isDrawingInfiniteLine || chart.isDrawingFibonacci) ? { ...chart.lineStartPoint } : undefined,
+                    point2: (chart.isDrawingInfiniteLine || chart.isDrawingFibonacci) ? lineEndPoint : undefined,
+                };
+                lines.push(newLine);
+                chart.selectedLineIndex = lines.length - 1;
+                chart.lineStartPoint = null;
+                chart.snapPoint = null;
+                chart.isDrawingLine = false;
+                chart.isDrawingInfiniteLine = false;
+                chart.isDrawingFibonacci = false;
+                chart.showCrosshair = true;
+                deactivateDrawingButtons();
+                document.getElementById('tool-crosshair')?.classList.add('active');
+                syncLineToolbar(chart);
+            }
+            chart.render();
+        } else if (chart.touchMode === 'pan' && chart.touchMoved) {
+            startPanInertia(chart, chartHeight);
+        }
+
+        chart.touchMode = null;
+        chart.lastTouchDistance = 0;
+        chart.lastTouchCenter = null;
+        chart.touchMoved = false;
+    }, { passive: false });
+
+    canvas.addEventListener('touchcancel', () => {
+        chart.touchMode = null;
+        chart.lastTouchDistance = 0;
+        chart.lastTouchCenter = null;
+        chart.touchMoved = false;
     }, { passive: false });
 
     canvas.addEventListener('mousedown', (e) => {
@@ -758,6 +966,19 @@ export function initEvents(chart) {
 
     document.addEventListener('keydown', (e) => {
         if (lineTextEditor && !lineTextEditor.hidden) return;
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && !isEditableTarget(e.target)) {
+            const key = e.key.toLowerCase();
+            if (key === 'c' && chart.selectedLineIndex !== -1) {
+                chart.copiedDrawing = cloneDrawing(lines[chart.selectedLineIndex]);
+                e.preventDefault();
+                return;
+            }
+            if (key === 'v' && chart.copiedDrawing) {
+                pasteCopiedDrawing();
+                e.preventDefault();
+                return;
+            }
+        }
         if ((e.key === 'Delete' || e.key === 'Backspace') && chart.selectedLineIndex !== -1) {
             lines.splice(chart.selectedLineIndex, 1);
             chart.selectedLineIndex = -1;
