@@ -94,6 +94,21 @@ export function getLineParameters(line, scaleType = 'linear') {
     return { m, b };
 }
 
+export function getDrawingPointX(chart, point, candleWidth = null, spacing = null) {
+    if (!point) return 0;
+    if (!point.time || !chart?.getIndexForDate) return point.x ?? 0;
+
+    const date = parseDateUTC(point.time);
+    const index = chart.getIndexForDate(date);
+    if (!Number.isFinite(index) || index < 0) return point.x ?? 0;
+
+    const resolvedCandleWidth = candleWidth ?? chart.getCandleWidth?.() ?? 0;
+    const resolvedSpacing = spacing ?? chart.getBarSpacing?.() ?? CANDLE_SPACING;
+    const slotWidth = resolvedCandleWidth + resolvedSpacing;
+    const centerOffset = slotWidth > 0 ? resolvedCandleWidth / 2 / slotWidth : 0;
+    return index + centerOffset;
+}
+
 export function getLinePoints(chart, line, width, height, candleWidth, spacing, numPoints) {
     if (!chart || !chart.view || !chart.dataManager || !line) {
         console.error('Invalid arguments for getLinePoints:', { chart, line });
@@ -103,15 +118,30 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
     let xMin, xMax;
     const slotWidth = candleWidth + spacing;
     const chartWidth = width - AXIS_MARGIN;
+    const startX = getDrawingPointX(chart, line.start, candleWidth, spacing);
+    const endX = getDrawingPointX(chart, line.end, candleWidth, spacing);
+    const point1X = getDrawingPointX(chart, line.point1, candleWidth, spacing);
+    const point2X = getDrawingPointX(chart, line.point2, candleWidth, spacing);
+    const lineForMath = line.type === 'infinite'
+        ? {
+            ...line,
+            point1: line.point1 ? { ...line.point1, x: point1X } : line.point1,
+            point2: line.point2 ? { ...line.point2, x: point2X } : line.point2,
+        }
+        : {
+            ...line,
+            start: line.start ? { ...line.start, x: startX } : line.start,
+            end: line.end ? { ...line.end, x: endX } : line.end,
+        };
     if (line.type === 'infinite') {
         xMin = (-chart.view.offsetX / slotWidth) - 2;
         xMax = ((chartWidth - chart.view.offsetX) / slotWidth) + 2;
     } else {
-        xMin = Math.min(line.start?.x ?? 0, line.end?.x ?? 0);
-        xMax = Math.max(line.start?.x ?? 0, line.end?.x ?? 0);
+        xMin = Math.min(startX, endX);
+        xMax = Math.max(startX, endX);
     }
     const lineScaleType = line.scaleType || chart.options.scaleType;
-    const { m, b } = getLineParameters(line, lineScaleType);
+    const { m, b } = getLineParameters(lineForMath, lineScaleType);
     const dx = xMax === xMin ? 0.0001 : (xMax - xMin) / (numPoints - 1);
 
     if (m === Infinity) {

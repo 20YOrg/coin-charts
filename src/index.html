@@ -17,8 +17,8 @@
             <span class="symbol-meta">Bitcoin / U.S. Dollar</span>
         </div>
         <div class="toolbar-divider"></div>
-        <div class="control-row control-chip">
-            <label for="interval-select">Candle</label>
+        <div class="control-row control-chip interval-control">
+            <label for="interval-select" class="control-title">Interval</label>
             <select id="interval-select">
                 <option value="1D">1D</option>
                 <option value="3D">3D</option>
@@ -27,9 +27,8 @@
                 <option value="3M">3M</option>
                 <option value="6M">6M</option>
             </select>
-        </div>
-        <div class="control-row custom-interval control-chip">
-            <label for="custom-interval-value">Custom</label>
+            <span class="inline-divider"></span>
+            <label for="custom-interval-value" class="custom-label">Custom</label>
             <input id="custom-interval-value" type="number" min="1" max="999" value="9">
             <select id="custom-interval-unit">
                 <option value="D">days</option>

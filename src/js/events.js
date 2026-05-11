@@ -1,5 +1,5 @@
 import { openMAModal } from './modal.js';
-import { getLinePoints, distanceToLineSegment, priceToY, yToPrice, AXIS_MARGIN, TIME_AXIS_HEIGHT } from './utils.js';
+import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toISODate, AXIS_MARGIN, TIME_AXIS_HEIGHT } from './utils.js';
 
 function normalizeWheelDelta(delta) {
     return Math.sign(delta) * Math.min(160, Math.abs(delta));
@@ -60,6 +60,7 @@ function getSnappedDrawingPoint(chart, mouseX, mouseY, chartHeight) {
     const rawIndex = (mouseX - chart.view.offsetX - candleWidth / 2) / slotWidth;
     const candleIndex = Math.round(rawIndex);
     const x = candleIndex + candleWidth / 2 / slotWidth;
+    const date = chart.getDateForIndex?.(candleIndex);
     let price = yToPrice(mouseY, chartHeight, chart.view, chart.options.scaleType);
     let source = 'time';
 
@@ -83,7 +84,7 @@ function getSnappedDrawingPoint(chart, mouseX, mouseY, chartHeight) {
         }
     }
 
-    return { x, y: price, source };
+    return { x, y: price, time: date ? toISODate(date) : undefined, source };
 }
 
 function getLineHandles(chart, line, chartHeight) {
@@ -107,7 +108,7 @@ function getLineHandles(chart, line, chartHeight) {
         .filter(({ point }) => point)
         .map(({ key, point }) => ({
             key,
-            x: point.x * slotWidth + chart.view.offsetX,
+            x: getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX,
             y: priceToY(point.y, chartHeight, chart.view, chart.options.scaleType),
         }));
 }
@@ -333,8 +334,8 @@ export function initEvents(chart) {
         if (!line || line.type !== 'fibonacci' || !line.point1 || !line.point2) return Infinity;
         const slotWidth = chart.getSlotWidth();
         const chartWidth = width - AXIS_MARGIN;
-        const x1 = line.point1.x * slotWidth + chart.view.offsetX;
-        const x2 = line.point2.x * slotWidth + chart.view.offsetX;
+        const x1 = getDrawingPointX(chart, line.point1) * slotWidth + chart.view.offsetX;
+        const x2 = getDrawingPointX(chart, line.point2) * slotWidth + chart.view.offsetX;
         const startX = Math.max(0, Math.min(x1, x2));
         const endX = chartWidth;
         if (mouseX < startX - 8 || mouseX > endX + 8) return Infinity;
@@ -347,6 +348,14 @@ export function initEvents(chart) {
             minDistance = Math.min(minDistance, Math.abs(mouseY - y));
         });
         return minDistance;
+    }
+
+    function updatePointTimeFromX(point) {
+        if (!point) return;
+        const slotWidth = chart.getSlotWidth();
+        const centerOffset = slotWidth > 0 ? chart.getCandleWidth() / 2 / slotWidth : 0;
+        const date = chart.getDateForIndex?.(Math.round(point.x - centerOffset));
+        if (date) point.time = toISODate(date);
     }
 
     canvas.addEventListener('wheel', (e) => {
@@ -472,7 +481,7 @@ export function initEvents(chart) {
                 if (chart.lineStartPoint === null) {
                     chart.lineStartPoint = point;
                 } else {
-                    const lineEndPoint = { x: point.x, y: point.y };
+                    const lineEndPoint = { x: point.x, y: point.y, time: point.time };
                     const newLine = {
                         type: chart.isDrawingFibonacci ? 'fibonacci' : chart.isDrawingLine ? 'finite' : 'infinite',
                         scaleType: options.scaleType,
@@ -595,6 +604,7 @@ export function initEvents(chart) {
             const point = getSnappedDrawingPoint(chart, mouseX, mouseY, chartHeight);
             if (line && line[chart.activeLineHandle]) {
                 line[chart.activeLineHandle] = { x: point.x, y: point.y };
+                if (point.time) line[chart.activeLineHandle].time = point.time;
                 chart.snapPoint = point;
             }
             canvas.style.cursor = 'grabbing';
@@ -614,15 +624,19 @@ export function initEvents(chart) {
                 return;
             }
             if (line.type === 'finite' && line.start && line.end) {
-                line.start.x += dx;
+                line.start.x = getDrawingPointX(chart, line.start) + dx;
                 line.start.y = options.scaleType === 'logarithmic' ? line.start.y * logMoveRatio : line.start.y + dy;
-                line.end.x += dx;
+                line.end.x = getDrawingPointX(chart, line.end) + dx;
                 line.end.y = options.scaleType === 'logarithmic' ? line.end.y * logMoveRatio : line.end.y + dy;
+                updatePointTimeFromX(line.start);
+                updatePointTimeFromX(line.end);
             } else if ((line.type === 'infinite' || line.type === 'fibonacci') && line.point1 && line.point2) {
-                line.point1.x += dx;
+                line.point1.x = getDrawingPointX(chart, line.point1) + dx;
                 line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
-                line.point2.x += dx;
+                line.point2.x = getDrawingPointX(chart, line.point2) + dx;
                 line.point2.y = options.scaleType === 'logarithmic' ? line.point2.y * logMoveRatio : line.point2.y + dy;
+                updatePointTimeFromX(line.point1);
+                updatePointTimeFromX(line.point2);
             }
             chart.lastMouseX = mouseX;
             chart.lastMouseY = mouseY;

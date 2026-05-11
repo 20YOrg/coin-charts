@@ -91,6 +91,26 @@ body {
     background: #fbfcff;
 }
 
+.interval-control {
+    gap: 6px;
+}
+
+.control-title {
+    color: var(--tv-text);
+    font-weight: 600;
+}
+
+.custom-label {
+    margin-left: 1px;
+}
+
+.inline-divider {
+    width: 1px;
+    height: 20px;
+    margin: 0 3px;
+    background: var(--tv-border);
+}
+
 select,
 input,
 button {
@@ -128,19 +148,20 @@ button:focus-visible {
 }
 
 #custom-interval-value {
-    width: 52px;
+    width: 48px;
 }
 
 #interval-select {
-    width: 72px;
+    width: 68px;
 }
 
 #custom-interval-unit {
-    width: 96px;
+    width: 86px;
 }
 
 #custom-interval-apply {
-    min-width: 42px;
+    min-width: 38px;
+    padding: 0 8px;
 }
 
 #scale-select {

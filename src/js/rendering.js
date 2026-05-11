@@ -1,4 +1,4 @@
-import { priceToY, yToPrice, formatDate, toISODate, getLinePoints, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING } from './utils.js';
+import { priceToY, yToPrice, formatDate, toISODate, getLinePoints, getDrawingPointX, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING } from './utils.js';
 
 const FIB_LEVELS = [
     { value: 0, label: '0' },
@@ -21,8 +21,8 @@ function renderFibonacci(ctx, line, isSelected, chart, chartWidth, chartHeight, 
     const point2 = line.point2;
     if (!point1 || !point2) return;
 
-    const x1 = point1.x * slotWidth + chart.view.offsetX;
-    const x2 = point2.x * slotWidth + chart.view.offsetX;
+    const x1 = getDrawingPointX(chart, point1) * slotWidth + chart.view.offsetX;
+    const x2 = getDrawingPointX(chart, point2) * slotWidth + chart.view.offsetX;
     const startX = Math.max(0, Math.min(x1, x2));
     const endX = chartWidth;
     const topPrice = point1.y;
@@ -63,7 +63,7 @@ function renderFibonacci(ctx, line, isSelected, chart, chartWidth, chartHeight, 
         ctx.fillStyle = '#ffffff';
         ctx.lineWidth = 2;
         [point1, point2].forEach((point) => {
-            const x = point.x * slotWidth + chart.view.offsetX;
+            const x = getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX;
             const y = priceToY(point.y, chartHeight, chart.view, chart.options.scaleType);
             if (!Number.isFinite(x) || !Number.isFinite(y)) return;
             ctx.beginPath();
@@ -260,7 +260,7 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                 ctx.lineWidth = 2;
                 anchors.forEach((anchor) => {
                     if (!anchor) return;
-                    const x = anchor.x * slotWidth + chart.view.offsetX;
+                    const x = getDrawingPointX(chart, anchor) * slotWidth + chart.view.offsetX;
                     const y = priceToY(anchor.y, chartHeight, chart.view, chart.options.scaleType);
                     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
                     if (x < -8 || x > chartWidth + 8 || y < -8 || y > chartHeight + 8) return;
@@ -284,7 +284,7 @@ export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, sp
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
     const slotWidth = candleWidth + spacing;
-    const snapX = chart.snapPoint.x * slotWidth + chart.view.offsetX;
+    const snapX = getDrawingPointX(chart, chart.snapPoint, candleWidth, spacing) * slotWidth + chart.view.offsetX;
     const snapY = priceToY(chart.snapPoint.y, chartHeight, chart.view, chart.options.scaleType);
     if (!Number.isFinite(snapX) || !Number.isFinite(snapY)) return;
 
@@ -299,20 +299,20 @@ export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, sp
                 type: 'fibonacci',
                 scaleType: chart.options.scaleType,
                 point1: chart.lineStartPoint,
-                point2: { x: chart.snapPoint.x, y: chart.snapPoint.y },
+                point2: { ...chart.snapPoint },
             }
             : chart.isDrawingLine
             ? {
                 type: 'finite',
                 scaleType: chart.options.scaleType,
                 start: chart.lineStartPoint,
-                end: { x: chart.snapPoint.x, y: chart.snapPoint.y },
+                end: { ...chart.snapPoint },
             }
             : {
                 type: 'infinite',
                 scaleType: chart.options.scaleType,
                 point1: chart.lineStartPoint,
-                point2: { x: chart.snapPoint.x, y: chart.snapPoint.y },
+                point2: { ...chart.snapPoint },
             };
         if (chart.isDrawingFibonacci) {
             renderFibonacci(ctx, previewLine, true, chart, chartWidth, chartHeight, slotWidth);
@@ -330,7 +330,7 @@ export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, sp
             ctx.setLineDash([]);
         }
 
-        const startX = chart.lineStartPoint.x * slotWidth + chart.view.offsetX;
+        const startX = getDrawingPointX(chart, chart.lineStartPoint, candleWidth, spacing) * slotWidth + chart.view.offsetX;
         const startY = priceToY(chart.lineStartPoint.y, chartHeight, chart.view, chart.options.scaleType);
         if (startX >= 0 && startX <= chartWidth && startY >= 0 && startY <= chartHeight) {
             ctx.beginPath();

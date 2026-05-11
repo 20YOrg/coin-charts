@@ -12,6 +12,15 @@ function isValidDrawingPoint(point) {
         && Number.isFinite(point.y);
 }
 
+function sanitizeDrawingPoint(point) {
+    if (!isValidDrawingPoint(point)) return null;
+    return {
+        x: point.x,
+        y: point.y,
+        ...(typeof point.time === 'string' ? { time: point.time } : {}),
+    };
+}
+
 function sanitizeDrawing(line) {
     if (!line || typeof line !== 'object') return null;
     const base = {
@@ -26,11 +35,11 @@ function sanitizeDrawing(line) {
     };
 
     if (line.type === 'finite' && isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end)) {
-        return { ...base, start: { ...line.start }, end: { ...line.end } };
+        return { ...base, start: sanitizeDrawingPoint(line.start), end: sanitizeDrawingPoint(line.end) };
     }
 
     if ((line.type === 'infinite' || line.type === 'fibonacci') && isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2)) {
-        return { ...base, point1: { ...line.point1 }, point2: { ...line.point2 } };
+        return { ...base, point1: sanitizeDrawingPoint(line.point1), point2: sanitizeDrawingPoint(line.point2) };
     }
 
     return null;
@@ -113,12 +122,32 @@ export class Chart {
                 return;
             }
             this.lines = saved.map(sanitizeDrawing).filter(Boolean);
+            this.lines.forEach(line => this.ensureDrawingTimes(line));
             this.selectedLineIndex = -1;
             this.hoveredLineIndex = -1;
         } catch (error) {
             console.warn('Unable to load drawings', error);
         } finally {
             this.drawingsReady = true;
+        }
+    }
+
+    ensurePointTime(point) {
+        if (!point || point.time) return;
+        const slotWidth = this.getSlotWidth();
+        const centerOffset = slotWidth > 0 ? this.getCandleWidth() / 2 / slotWidth : 0;
+        const date = this.getDateForIndex(Math.round(point.x - centerOffset));
+        if (date) point.time = toISODate(date);
+    }
+
+    ensureDrawingTimes(line) {
+        if (!line) return;
+        if (line.type === 'finite') {
+            this.ensurePointTime(line.start);
+            this.ensurePointTime(line.end);
+        } else {
+            this.ensurePointTime(line.point1);
+            this.ensurePointTime(line.point2);
         }
     }
 
