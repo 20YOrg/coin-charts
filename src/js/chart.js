@@ -31,6 +31,8 @@ function sanitizeDrawing(line) {
         style: ['solid', 'dashed', 'dotted'].includes(line.style) ? line.style : 'solid',
         text: typeof line.text === 'string' ? line.text : '',
         textColor: typeof line.textColor === 'string' ? line.textColor : '#131722',
+        textBold: Boolean(line.textBold),
+        textSize: Number.isFinite(line.textSize) ? Math.min(32, Math.max(8, line.textSize)) : 12,
         locked: Boolean(line.locked),
     };
 
@@ -38,7 +40,7 @@ function sanitizeDrawing(line) {
         return { ...base, start: sanitizeDrawingPoint(line.start), end: sanitizeDrawingPoint(line.end) };
     }
 
-    if ((line.type === 'infinite' || line.type === 'fibonacci') && isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2)) {
+    if ((line.type === 'infinite' || line.type === 'fibonacci' || line.type === 'measure') && isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2)) {
         return { ...base, point1: sanitizeDrawingPoint(line.point1), point2: sanitizeDrawingPoint(line.point2) };
     }
 
@@ -87,6 +89,7 @@ export class Chart {
         this.isDrawingLine = false;
         this.isDrawingInfiniteLine = false;
         this.isDrawingFibonacci = false;
+        this.isDrawingMeasure = false;
         this.lineStartPoint = null;
         this.snapPoint = null;
         this.lines = [];
@@ -94,6 +97,9 @@ export class Chart {
         this.hoveredLineIndex = -1;
         this.isMovingLine = false;
         this.activeLineHandle = null;
+        this.drawingHistory = [];
+        this.drawingDragSnapshot = null;
+        this.drawingDragChanged = false;
         this.renderQueued = false;
         this.inertiaFrame = null;
         this.dragVelocityX = 0;
@@ -833,7 +839,7 @@ export class Chart {
         renderIndicators(this.ctx, this.movingAverages, this.dataManager.data, this.view, width, height, candleWidth, spacing, this.options.scaleType);
         renderLines(this.ctx, this.lines, this.selectedLineIndex, this, width, height, candleWidth, spacing);
         renderDrawingFeedback(this.ctx, this, width, height, candleWidth, spacing);
-        const isDrawingTool = this.isDrawingLine || this.isDrawingInfiniteLine || this.isDrawingFibonacci;
+        const isDrawingTool = this.isDrawingLine || this.isDrawingInfiniteLine || this.isDrawingFibonacci || this.isDrawingMeasure;
         renderCrosshair(this.ctx, this.crosshair, this.showCrosshair, isDrawingTool, false, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
         this.ctx.restore();
 

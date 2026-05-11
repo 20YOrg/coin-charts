@@ -16,6 +16,99 @@ function formatFibPrice(price) {
         : price.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
+function formatMeasureValue(value) {
+    const abs = Math.abs(value);
+    return abs >= 1000
+        ? value.toLocaleString('en-US', { maximumFractionDigits: 0 })
+        : value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function renderMeasure(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth) {
+    const point1 = line.point1;
+    const point2 = line.point2;
+    if (!point1 || !point2) return;
+
+    const x1 = getDrawingPointX(chart, point1) * slotWidth + chart.view.offsetX;
+    const x2 = getDrawingPointX(chart, point2) * slotWidth + chart.view.offsetX;
+    const y1 = priceToY(point1.y, chartHeight, chart.view, chart.options.scaleType);
+    const y2 = priceToY(point2.y, chartHeight, chart.view, chart.options.scaleType);
+    if (![x1, x2, y1, y2].every(Number.isFinite)) return;
+
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const top = Math.min(y1, y2);
+    const bottom = Math.max(y1, y2);
+    const delta = point2.y - point1.y;
+    const percent = point1.y ? (delta / point1.y) * 100 : 0;
+    const bars = Math.round(Math.abs(getDrawingPointX(chart, point2) - getDrawingPointX(chart, point1)));
+    const date1 = point1.time ? new Date(`${point1.time}T00:00:00Z`) : null;
+    const date2 = point2.time ? new Date(`${point2.time}T00:00:00Z`) : null;
+    const days = date1 && date2 ? Math.round(Math.abs(date2 - date1) / 86400000) : bars;
+    const label = `${formatMeasureValue(delta)} (${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%)  ${bars} bars, ${days}d`;
+
+    ctx.save();
+    const isPositive = delta >= 0;
+    const color = isPositive ? '#089981' : '#ff4d5f';
+    const fillColor = isPositive ? 'rgba(8, 153, 129, 0.16)' : 'rgba(255, 77, 95, 0.17)';
+    const frameColor = isPositive ? 'rgba(8, 153, 129, 0.62)' : 'rgba(255, 77, 95, 0.62)';
+    const isHovered = chart.hoveredLineIndex === chart.lines.indexOf(line);
+    const rectLeft = Math.max(0, left);
+    const rectRight = Math.min(chartWidth, right);
+    const rectTop = Math.max(0, top);
+    const rectBottom = Math.min(chartHeight, bottom);
+    const rectWidth = Math.max(1, rectRight - rectLeft);
+    const rectHeight = Math.max(1, rectBottom - rectTop);
+    const measureX = rectLeft + rectWidth / 2;
+    const measureY = rectTop + rectHeight / 2;
+
+    ctx.fillStyle = fillColor;
+    ctx.fillRect(rectLeft, rectTop, rectWidth, rectHeight);
+
+    if (isSelected || isHovered) {
+        ctx.strokeStyle = frameColor;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(Math.round(rectLeft) + 0.5, Math.round(rectTop) + 0.5, rectWidth, rectHeight);
+        ctx.setLineDash([]);
+    }
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(measureX) + 0.5, rectTop);
+    ctx.lineTo(Math.round(measureX) + 0.5, rectBottom);
+    ctx.moveTo(rectLeft, Math.round(measureY) + 0.5);
+    ctx.lineTo(rectRight, Math.round(measureY) + 0.5);
+    ctx.stroke();
+
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    const labelWidth = ctx.measureText(label).width + 16;
+    const labelHeight = 24;
+    const labelX = Math.max(4, Math.min(chartWidth - labelWidth - 4, (x1 + x2) / 2 - labelWidth / 2));
+    const labelY = Math.max(4, Math.min(chartHeight - labelHeight - 4, top - labelHeight - 8));
+    ctx.fillStyle = '#131722';
+    ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, labelX + labelWidth / 2, labelY + labelHeight / 2);
+
+    if (isSelected) {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#131722';
+        ctx.lineWidth = 2;
+        [point1, point2].forEach((point) => {
+            const x = getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX;
+            const y = priceToY(point.y, chartHeight, chart.view, chart.options.scaleType);
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        });
+    }
+    ctx.restore();
+}
+
 function renderFibonacci(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth) {
     const point1 = line.point1;
     const point2 = line.point2;
@@ -212,6 +305,10 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                 renderFibonacci(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth);
                 return;
             }
+            if (line.type === 'measure') {
+                renderMeasure(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth);
+                return;
+            }
             const points = getLinePoints(chart, line, width, chartHeight, candleWidth, spacing, 50);
             if (!points || points.length < 2) {
                 console.warn('No valid points for line:', line);
@@ -230,7 +327,8 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
             ctx.stroke();
             ctx.setLineDash([]);
 
-            const showLineText = (line.text || (index === chart.hoveredLineIndex && index !== chart.editingLineTextIndex)) && points.length >= 2;
+            const showLineText = (line.text || (index === chart.hoveredLineIndex && index !== chart.editingLineTextIndex))
+                && points.length >= 2;
             if (showLineText) {
                 const midIndex = Math.floor(points.length / 2);
                 const midPoint = points[midIndex];
@@ -243,10 +341,11 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                 ctx.translate(midPoint.x, midPoint.y);
                 ctx.rotate(angle);
                 ctx.fillStyle = line.text ? (line.textColor || '#131722') : '#6fcad7';
-                ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+                const textSize = line.textSize || 12;
+                ctx.font = `${line.textBold ? '700' : '400'} ${textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'bottom';
-                ctx.fillText(label, 0, -8);
+                ctx.fillText(label, 0, -Math.max(8, textSize * 0.65));
                 ctx.restore();
             }
 
@@ -279,7 +378,7 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
 }
 
 export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, spacing) {
-    if (!chart.snapPoint || (!chart.isDrawingLine && !chart.isDrawingInfiniteLine && !chart.isDrawingFibonacci)) return;
+    if (!chart.snapPoint || (!chart.isDrawingLine && !chart.isDrawingInfiniteLine && !chart.isDrawingFibonacci && !chart.isDrawingMeasure)) return;
 
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
@@ -301,6 +400,13 @@ export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, sp
                 point1: chart.lineStartPoint,
                 point2: { ...chart.snapPoint },
             }
+            : chart.isDrawingMeasure
+            ? {
+                type: 'measure',
+                scaleType: chart.options.scaleType,
+                point1: chart.lineStartPoint,
+                point2: { ...chart.snapPoint },
+            }
             : chart.isDrawingLine
             ? {
                 type: 'finite',
@@ -316,9 +422,11 @@ export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, sp
             };
         if (chart.isDrawingFibonacci) {
             renderFibonacci(ctx, previewLine, true, chart, chartWidth, chartHeight, slotWidth);
+        } else if (chart.isDrawingMeasure) {
+            renderMeasure(ctx, previewLine, true, chart, chartWidth, chartHeight, slotWidth);
         }
 
-        const points = chart.isDrawingFibonacci ? [] : getLinePoints(chart, previewLine, width, chartHeight, candleWidth, spacing, 64);
+        const points = (chart.isDrawingFibonacci || chart.isDrawingMeasure) ? [] : getLinePoints(chart, previewLine, width, chartHeight, candleWidth, spacing, 64);
         if (points.length >= 2) {
             ctx.setLineDash([4, 4]);
             ctx.beginPath();
