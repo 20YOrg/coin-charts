@@ -2,11 +2,12 @@
   "name": "coin-charts",
   "version": "1.0.0",
   "description": "A lightweight, modular web application for interactive candlestick charts, designed for cryptocurrency data visualization. Built with HTML5 Canvas, JavaScript, and Vite.",
-  "main": "src/js/main.js",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
+    "preview": "vite preview --host 0.0.0.0",
+    "start": "vite preview --host 0.0.0.0 --port ${PORT:-4173}",
     "update:data": "node scripts/update-btc-data.mjs"
   },
   "keywords": [
@@ -19,8 +20,7 @@
   ],
   "author": "20YOrg",
   "license": "ISC",
-  "dependencies": {},
-  "devDependencies": {
+  "dependencies": {
     "vite": "^6.3.5"
   }
 }
