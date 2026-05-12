@@ -10,6 +10,8 @@ function getLineHitRadius(chart) {
 }
 
 function getLineHandleRadius(chart) {
+    const isTouch = window.matchMedia?.('(pointer: coarse)')?.matches;
+    if (isTouch) return 26;
     return Math.max(8, Math.min(12, chart.getSlotWidth() * 0.55));
 }
 
@@ -94,6 +96,10 @@ function getLineHandles(chart, line, chartHeight) {
             { key: 'point1', point: line.point1 },
             { key: 'point2', point: line.point2 },
         ]
+        : (line.type === 'horizontal' || line.type === 'vertical')
+        ? [
+            { key: 'point1', point: line.point1 },
+        ]
         : line.type === 'finite'
         ? [
             { key: 'start', point: line.start },
@@ -118,7 +124,12 @@ function findLineHandleAt(chart, mouseX, mouseY, chartHeight) {
     let best = null;
     let bestDistance = Infinity;
 
-    chart.lines.forEach((line, lineIndex) => {
+    const selectedFirst = chart.selectedLineIndex >= 0
+        ? [chart.selectedLineIndex, ...chart.lines.map((_, index) => index).filter(index => index !== chart.selectedLineIndex)]
+        : chart.lines.map((_, index) => index);
+
+    selectedFirst.forEach((lineIndex) => {
+        const line = chart.lines[lineIndex];
         getLineHandles(chart, line, chartHeight).forEach((handle) => {
             const distance = Math.hypot(mouseX - handle.x, mouseY - handle.y);
             if (distance < radius && distance < bestDistance) {
@@ -222,6 +233,11 @@ function syncLineToolbar(chart) {
     });
     document.getElementById('line-text-bold')?.classList.toggle('active', !!line.textBold);
     document.getElementById('line-lock')?.classList.toggle('active', !!line.locked);
+    document.getElementById('line-more-lock')?.classList.toggle('active', !!line.locked);
+    const pasteButton = document.getElementById('line-paste');
+    if (pasteButton) pasteButton.disabled = !chart.copiedDrawing;
+    const morePasteButton = document.getElementById('line-more-paste');
+    if (morePasteButton) morePasteButton.disabled = !chart.copiedDrawing;
 }
 
 function mutateSelectedLine(chart, updater) {
@@ -230,6 +246,17 @@ function mutateSelectedLine(chart, updater) {
     const before = captureDrawingState(chart);
     updater(line);
     pushDrawingHistory(chart, before);
+    syncLineToolbar(chart);
+    chart.render();
+}
+
+function deleteSelectedLine(chart) {
+    if (chart.selectedLineIndex === -1) return;
+    const before = captureDrawingState(chart);
+    chart.lines.splice(chart.selectedLineIndex, 1);
+    pushDrawingHistory(chart, before);
+    chart.selectedLineIndex = -1;
+    chart.activeLineHandle = null;
     syncLineToolbar(chart);
     chart.render();
 }
@@ -250,6 +277,35 @@ function isEditableTarget(target) {
 function getLineTextPlacement(chart, line, width, chartHeight, text = '') {
     if (!line || (!line.start && !line.point1)) return null;
     if (line.type === 'fibonacci' || line.type === 'measure') return null;
+    const label = text || line.text || '+ Add text';
+    const textSize = line.textSize || 12;
+
+    if (line.type === 'horizontal') {
+        const y = priceToY(line.point1.y, chartHeight, chart.view, chart.options.scaleType);
+        if (!Number.isFinite(y)) return null;
+        const x = Math.max(64, Math.min(width - AXIS_MARGIN - 64, getDrawingPointX(chart, line.point1) * chart.getSlotWidth() + chart.view.offsetX));
+        return {
+            x: x + (line.textOffsetX || 0),
+            y: y - Math.max(8, textSize * 0.65) + (line.textOffsetY || 0),
+            angle: 0,
+            width: Math.max(56, label.length * textSize * 0.58),
+            height: textSize + 6,
+        };
+    }
+
+    if (line.type === 'vertical') {
+        const x = getDrawingPointX(chart, line.point1) * chart.getSlotWidth() + chart.view.offsetX;
+        if (!Number.isFinite(x)) return null;
+        const y = Math.max(64, Math.min(chartHeight - 64, priceToY(line.point1.y, chartHeight, chart.view, chart.options.scaleType)));
+        return {
+            x: x + (line.textOffsetX || 0),
+            y: y + (line.textOffsetY || 0),
+            angle: -Math.PI / 2,
+            width: Math.max(56, label.length * textSize * 0.58),
+            height: textSize + 6,
+        };
+    }
+
     const candleWidth = chart.getCandleWidth();
     const spacing = chart.getBarSpacing();
     const points = getLinePoints(chart, line, width, chartHeight, candleWidth, spacing, 50);
@@ -262,11 +318,9 @@ function getLineTextPlacement(chart, line, width, chartHeight, text = '') {
     let angle = Math.atan2(nextPoint.y - prevPoint.y, nextPoint.x - prevPoint.x);
     if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
 
-    const label = text || line.text || '+ Add text';
-    const textSize = line.textSize || 12;
-        return {
-            x: midPoint.x,
-            y: midPoint.y - Math.max(8, textSize * 0.65),
+    return {
+        x: midPoint.x + (line.textOffsetX || 0),
+        y: midPoint.y - Math.max(8, textSize * 0.65) + (line.textOffsetY || 0),
         angle,
         width: Math.max(56, label.length * textSize * 0.58),
         height: textSize + 6,
@@ -316,6 +370,10 @@ export function initEvents(chart) {
             chart.selectedLineIndex = chart.lineTextEditSnapshot.selectedLineIndex;
         }
         lineTextEditor.hidden = true;
+        if (chart.lineTextCaretTimer) {
+            clearInterval(chart.lineTextCaretTimer);
+            chart.lineTextCaretTimer = null;
+        }
         chart.editingLineTextIndex = -1;
         chart.lineTextEditSnapshot = null;
         delete lineTextEditor.dataset.lineIndex;
@@ -335,36 +393,47 @@ export function initEvents(chart) {
         chart.lineTextEditSnapshot = captureDrawingState(chart);
         syncLineToolbar(chart);
 
-        const editorWidth = Math.max(84, Math.min(220, placement.width + 18));
-        const editorHeight = (lines[lineIndex].textSize || 12) + 8;
-        const left = Math.max(48, Math.min(width - AXIS_MARGIN - editorWidth - 6, placement.x - editorWidth / 2));
+        const textSize = lines[lineIndex].textSize || 12;
+        const isCompactTouch = window.matchMedia?.('(max-width: 720px), (pointer: coarse)')?.matches;
+        const editorFontSize = isCompactTouch ? Math.max(16, textSize) : textSize;
+        const editorWidth = Math.max(36, Math.min(240, placement.width + 22));
+        const editorHeight = Math.max(textSize, editorFontSize) + 8;
+        const left = Math.max(4, Math.min(width - AXIS_MARGIN - editorWidth - 6, placement.x - editorWidth / 2));
         const top = Math.max(4, Math.min(chartHeight - editorHeight - 4, placement.y - editorHeight));
         lineTextEditor.dataset.lineIndex = String(lineIndex);
         lineTextEditor.value = lines[lineIndex].text || '';
         lineTextEditor.placeholder = '+ Add text';
-        lineTextEditor.style.width = `${editorWidth}px`;
-        lineTextEditor.style.left = `${left}px`;
-        lineTextEditor.style.top = `${top}px`;
+        lineTextEditor.style.width = '1px';
+        lineTextEditor.style.left = `${Math.max(4, Math.min(width - AXIS_MARGIN - 8, placement.x))}px`;
+        lineTextEditor.style.top = `${Math.max(4, Math.min(chartHeight - 24, placement.y - 18))}px`;
         lineTextEditor.style.color = 'transparent';
-        lineTextEditor.style.caretColor = lines[lineIndex].textColor || '#131722';
+        lineTextEditor.style.caretColor = 'transparent';
         lineTextEditor.style.fontWeight = lines[lineIndex].textBold ? '700' : '400';
-        lineTextEditor.style.fontSize = `${lines[lineIndex].textSize || 12}px`;
-        lineTextEditor.style.height = `${editorHeight}px`;
-        lineTextEditor.style.lineHeight = `${Math.max(18, lines[lineIndex].textSize || 12)}px`;
-        lineTextEditor.style.transform = `rotate(${placement.angle}rad)`;
-        lineTextEditor.style.transformOrigin = 'center bottom';
+        lineTextEditor.style.fontSize = `${editorFontSize}px`;
+        lineTextEditor.style.height = '20px';
+        lineTextEditor.style.lineHeight = `${Math.max(18, editorFontSize)}px`;
+        lineTextEditor.style.transform = 'none';
+        lineTextEditor.style.transformOrigin = 'left top';
         lineTextEditor.hidden = false;
         lineTextEditor.focus();
         const caretIndex = lineTextEditor.value.length;
         lineTextEditor.setSelectionRange(caretIndex, caretIndex);
+        if (chart.lineTextCaretTimer) clearInterval(chart.lineTextCaretTimer);
+        chart.lineTextCaretTimer = setInterval(() => {
+            if (!lineTextEditor || lineTextEditor.hidden) {
+                clearInterval(chart.lineTextCaretTimer);
+                chart.lineTextCaretTimer = null;
+                return;
+            }
+            chart.requestRender();
+        }, 260);
     }
 
     if (lineTextEditor) {
         lineTextEditor.addEventListener('input', () => {
             const lineIndex = Number.parseInt(lineTextEditor.dataset.lineIndex || '-1', 10);
             const line = lines[lineIndex];
-            if (!line) return;
-            line.text = lineTextEditor.value.trim();
+            if (line) line.text = lineTextEditor.value;
             chart.render();
         });
         lineTextEditor.addEventListener('keydown', (e) => {
@@ -380,10 +449,35 @@ export function initEvents(chart) {
     }
 
     function closeLineMenus(except = null) {
-        ['line-color-menu', 'line-text-color-menu', 'line-style-menu', 'line-width-menu', 'line-text-size-menu'].forEach((id) => {
+        ['line-color-menu', 'line-text-color-menu', 'line-style-menu', 'line-width-menu', 'line-text-size-menu', 'line-more-menu'].forEach((id) => {
             const menu = document.getElementById(id);
             if (menu && menu !== except) menu.hidden = true;
         });
+    }
+
+    function isMobileToolbarLayout() {
+        return window.matchMedia?.('(max-width: 720px), (pointer: coarse)')?.matches;
+    }
+
+    function positionToolbarMenu(menu, button) {
+        if (!menu || !button || !isMobileToolbarLayout()) {
+            menu?.style.removeProperty('left');
+            menu?.style.removeProperty('top');
+            return;
+        }
+
+        const buttonRect = button.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+        const menuWidth = menuRect.width || Number.parseFloat(getComputedStyle(menu).width) || 160;
+        const menuHeight = menuRect.height || Number.parseFloat(getComputedStyle(menu).height) || 140;
+        const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, buttonRect.left));
+        const preferredTop = buttonRect.bottom + 6;
+        const top = preferredTop + menuHeight > window.innerHeight - 8
+            ? Math.max(8, buttonRect.top - menuHeight - 6)
+            : preferredTop;
+
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
     }
 
     function setupColorMenu({ buttonId, menuId, inputId, swatchId, field, fallback }) {
@@ -392,6 +486,27 @@ export function initEvents(chart) {
         const input = document.getElementById(inputId);
         const swatch = document.getElementById(swatchId);
         if (!button || !menu || !input || !swatch) return;
+        let lastColorPointerTime = 0;
+
+        function selectColor(color) {
+            input.value = color;
+            swatch.style.background = color;
+            mutateSelectedLine(chart, line => { line[field] = color; });
+            closeLineMenus();
+        }
+
+        function toggleMenu(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const willOpen = menu.hidden;
+            closeLineMenus(menu);
+            menu.hidden = !willOpen;
+            if (willOpen) positionToolbarMenu(menu, button);
+            const currentColor = input.value || fallback;
+            Array.from(menu.children).forEach((item) => {
+                item.classList.toggle('active', item.title.toLowerCase() === currentColor.toLowerCase());
+            });
+        }
 
         menu.replaceChildren();
         drawingColors.forEach((color) => {
@@ -399,25 +514,27 @@ export function initEvents(chart) {
             item.type = 'button';
             item.title = color;
             item.style.setProperty('--color-value', color);
-            item.addEventListener('click', (e) => {
+            item.addEventListener('pointerup', (e) => {
+                e.preventDefault();
                 e.stopPropagation();
-                input.value = color;
-                swatch.style.background = color;
-                mutateSelectedLine(chart, line => { line[field] = color; });
-                closeLineMenus();
+                lastColorPointerTime = performance.now();
+                selectColor(color);
+            });
+            item.addEventListener('click', (e) => {
+                if (performance.now() - lastColorPointerTime < 500) return;
+                e.stopPropagation();
+                selectColor(color);
             });
             menu.appendChild(item);
         });
 
+        button.addEventListener('pointerup', (e) => {
+            lastColorPointerTime = performance.now();
+            toggleMenu(e);
+        });
         button.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const willOpen = menu.hidden;
-            closeLineMenus(menu);
-            menu.hidden = !willOpen;
-            const currentColor = input.value || fallback;
-            Array.from(menu.children).forEach((item) => {
-                item.classList.toggle('active', item.title.toLowerCase() === currentColor.toLowerCase());
-            });
+            if (e.pointerType || performance.now() - lastColorPointerTime < 500) return;
+            toggleMenu(e);
         });
     }
 
@@ -425,21 +542,42 @@ export function initEvents(chart) {
         const button = document.getElementById('line-style-button');
         const menu = document.getElementById('line-style-menu');
         if (!button || !menu) return;
+        let lastStylePointerTime = 0;
 
-        button.addEventListener('click', (e) => {
+        function toggleStyleMenu(e) {
+            e.preventDefault();
             e.stopPropagation();
             const willOpen = menu.hidden;
             closeLineMenus(menu);
             menu.hidden = !willOpen;
+            if (willOpen) positionToolbarMenu(menu, button);
             const line = selectedLine(chart);
             const style = line?.style || 'solid';
             menu.querySelectorAll('button').forEach((item) => {
                 item.classList.toggle('active', item.dataset.style === style);
             });
+        }
+
+        button.addEventListener('pointerup', (e) => {
+            lastStylePointerTime = performance.now();
+            toggleStyleMenu(e);
+        });
+        button.addEventListener('click', (e) => {
+            if (e.pointerType || performance.now() - lastStylePointerTime < 500) return;
+            toggleStyleMenu(e);
         });
 
         menu.querySelectorAll('button').forEach((item) => {
+            item.addEventListener('pointerup', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                lastStylePointerTime = performance.now();
+                const style = item.dataset.style || 'solid';
+                mutateSelectedLine(chart, line => { line.style = style; });
+                closeLineMenus();
+            });
             item.addEventListener('click', (e) => {
+                if (performance.now() - lastStylePointerTime < 500) return;
                 e.stopPropagation();
                 const style = item.dataset.style || 'solid';
                 mutateSelectedLine(chart, line => { line.style = style; });
@@ -452,17 +590,38 @@ export function initEvents(chart) {
         const button = document.getElementById(buttonId);
         const menu = document.getElementById(menuId);
         if (!button || !menu) return;
+        let lastChoicePointerTime = 0;
 
-        button.addEventListener('click', (e) => {
+        function toggleChoiceMenu(e) {
+            e.preventDefault();
             e.stopPropagation();
             const willOpen = menu.hidden;
             closeLineMenus(menu);
             menu.hidden = !willOpen;
+            if (willOpen) positionToolbarMenu(menu, button);
             syncLineToolbar(chart);
+        }
+
+        button.addEventListener('pointerup', (e) => {
+            lastChoicePointerTime = performance.now();
+            toggleChoiceMenu(e);
+        });
+        button.addEventListener('click', (e) => {
+            if (e.pointerType || performance.now() - lastChoicePointerTime < 500) return;
+            toggleChoiceMenu(e);
         });
 
         menu.querySelectorAll('button').forEach((item) => {
+            item.addEventListener('pointerup', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                lastChoicePointerTime = performance.now();
+                const value = Number.parseInt(item.dataset.value, 10);
+                if (Number.isFinite(value)) onSelect(value);
+                closeLineMenus();
+            });
             item.addEventListener('click', (e) => {
+                if (performance.now() - lastChoicePointerTime < 500) return;
                 e.stopPropagation();
                 const value = Number.parseInt(item.dataset.value, 10);
                 if (Number.isFinite(value)) onSelect(value);
@@ -471,15 +630,56 @@ export function initEvents(chart) {
         });
     }
 
+    function setupMoreMenu() {
+        const button = document.getElementById('line-more-button');
+        const menu = document.getElementById('line-more-menu');
+        if (!button || !menu) return;
+        let lastMorePointerTime = 0;
+
+        function toggleMoreMenu(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const willOpen = menu.hidden;
+            closeLineMenus(menu);
+            menu.hidden = !willOpen;
+            if (willOpen) positionToolbarMenu(menu, button);
+            syncLineToolbar(chart);
+        }
+
+        button.addEventListener('pointerup', (e) => {
+            lastMorePointerTime = performance.now();
+            toggleMoreMenu(e);
+        });
+        button.addEventListener('click', (e) => {
+            if (e.pointerType || performance.now() - lastMorePointerTime < 500) return;
+            toggleMoreMenu(e);
+        });
+    }
+
     function isDrawingAnyTool() {
-        return chart.isDrawingLine || chart.isDrawingInfiniteLine || chart.isDrawingFibonacci || chart.isDrawingMeasure;
+        return chart.isDrawingLine || chart.isDrawingInfiniteLine || chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine || chart.isDrawingFibonacci || chart.isDrawingMeasure;
     }
 
     function deactivateDrawingButtons() {
         document.getElementById('tool-line')?.classList.remove('active');
         document.getElementById('tool-infinite-line')?.classList.remove('active');
+        document.getElementById('tool-horizontal-line')?.classList.remove('active');
+        document.getElementById('tool-vertical-line')?.classList.remove('active');
         document.getElementById('tool-fibonacci')?.classList.remove('active');
         document.getElementById('tool-measure')?.classList.remove('active');
+    }
+
+    function getAxisLineHit(chart, line, mouseX, mouseY, chartHeight) {
+        if (!line || !line.point1) return Infinity;
+        if (line.type === 'horizontal') {
+            const y = priceToY(line.point1.y, chartHeight, chart.view, chart.options.scaleType);
+            return Math.abs(mouseY - y);
+        }
+        if (line.type === 'vertical') {
+            const x = getDrawingPointX(chart, line.point1) * chart.getSlotWidth() + chart.view.offsetX;
+            return Math.abs(mouseX - x);
+        }
+        return Infinity;
     }
 
     function getFibonacciHit(chart, line, mouseX, mouseY, width, chartHeight) {
@@ -519,6 +719,36 @@ export function initEvents(chart) {
         return Math.min(edgeDistance, distanceToLineSegment(mouseX, mouseY, x1, y1, x2, y2));
     }
 
+    function findDrawingAt(mouseX, mouseY, width, chartHeight, hitRadius = getLineHitRadius(chart)) {
+        const candleWidth = chart.getCandleWidth();
+        const spacing = chart.getBarSpacing();
+        let minDistance = Infinity;
+        let closestLineIndex = -1;
+
+        lines.forEach((line, index) => {
+            if (!line || (!line.start && !line.point1)) return;
+            let distance = Infinity;
+            if (line.type === 'fibonacci') {
+                distance = getFibonacciHit(chart, line, mouseX, mouseY, width, chartHeight);
+            } else if (line.type === 'measure') {
+                distance = getMeasureHit(chart, line, mouseX, mouseY, chartHeight);
+            } else if (line.type === 'horizontal' || line.type === 'vertical') {
+                distance = getAxisLineHit(chart, line, mouseX, mouseY, chartHeight);
+            } else {
+                const points = getLinePoints(chart, line, width, chartHeight, candleWidth, spacing, 50);
+                for (let i = 0; i < points.length - 1; i++) {
+                    distance = Math.min(distance, distanceToLineSegment(mouseX, mouseY, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y));
+                }
+            }
+            if (distance < minDistance && distance < hitRadius) {
+                minDistance = distance;
+                closestLineIndex = index;
+            }
+        });
+
+        return closestLineIndex;
+    }
+
     function updatePointTimeFromX(point) {
         if (!point) return;
         const slotWidth = chart.getSlotWidth();
@@ -532,6 +762,8 @@ export function initEvents(chart) {
         if (line.type === 'finite') {
             updatePointTimeFromX(line.start);
             updatePointTimeFromX(line.end);
+        } else if (line.type === 'horizontal' || line.type === 'vertical') {
+            updatePointTimeFromX(line.point1);
         } else {
             updatePointTimeFromX(line.point1);
             updatePointTimeFromX(line.point2);
@@ -582,6 +814,12 @@ export function initEvents(chart) {
         chart.render();
     }
 
+    function copySelectedDrawing() {
+        if (chart.selectedLineIndex === -1 || !lines[chart.selectedLineIndex]) return;
+        chart.copiedDrawing = cloneDrawing(lines[chart.selectedLineIndex]);
+        syncLineToolbar(chart);
+    }
+
     function getTouchPoint(touch, rect) {
         return {
             x: touch.clientX - rect.left,
@@ -602,6 +840,111 @@ export function initEvents(chart) {
         const dx = touches[0].clientX - touches[1].clientX;
         const dy = touches[0].clientY - touches[1].clientY;
         return Math.hypot(dx, dy);
+    }
+
+    function clearTouchHold() {
+        if (chart.touchHoldTimer) {
+            clearTimeout(chart.touchHoldTimer);
+            chart.touchHoldTimer = null;
+        }
+        chart.touchHoldTarget = null;
+    }
+
+    function moveActiveDrawingHandle(mouseX, mouseY, chartHeight) {
+        const line = lines[chart.selectedLineIndex];
+        if (!line || line.locked || !chart.activeLineHandle || !line[chart.activeLineHandle]) return;
+
+        const width = canvas.offsetWidth;
+        const clampedX = Math.max(0, Math.min(width - AXIS_MARGIN, mouseX));
+        const clampedY = Math.max(0, Math.min(chartHeight, mouseY));
+        const point = getSnappedDrawingPoint(chart, clampedX, clampedY, chartHeight);
+
+        line[chart.activeLineHandle] = { x: point.x, y: point.y };
+        if (point.time) line[chart.activeLineHandle].time = point.time;
+        chart.snapPoint = point;
+        markDrawingDragChanged(chart);
+    }
+
+    function moveSelectedDrawing(mouseX, mouseY, chartHeight) {
+        const line = lines[chart.selectedLineIndex];
+        if (!line || line.locked) {
+            chart.isMovingLine = false;
+            return;
+        }
+
+        const candleWidth = chart.getCandleWidth();
+        const spacing = chart.getBarSpacing();
+        const dx = (mouseX - chart.lastMouseX) / (candleWidth + spacing);
+        const previousPrice = yToPrice(chart.lastMouseY, chartHeight, view, options.scaleType);
+        const currentPrice = yToPrice(mouseY, chartHeight, view, options.scaleType);
+        const dy = currentPrice - previousPrice;
+        const logMoveRatio = currentPrice / Math.max(previousPrice, 1e-10);
+
+        if (line.type === 'finite' && line.start && line.end) {
+            line.start.x = getDrawingPointX(chart, line.start) + dx;
+            line.start.y = options.scaleType === 'logarithmic' ? line.start.y * logMoveRatio : line.start.y + dy;
+            line.end.x = getDrawingPointX(chart, line.end) + dx;
+            line.end.y = options.scaleType === 'logarithmic' ? line.end.y * logMoveRatio : line.end.y + dy;
+            updatePointTimeFromX(line.start);
+            updatePointTimeFromX(line.end);
+            markDrawingDragChanged(chart);
+        } else if (line.type === 'horizontal' && line.point1) {
+            line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
+            markDrawingDragChanged(chart);
+        } else if (line.type === 'vertical' && line.point1) {
+            line.point1.x = getDrawingPointX(chart, line.point1) + dx;
+            delete line.point1.time;
+            markDrawingDragChanged(chart);
+        } else if ((line.type === 'infinite' || line.type === 'fibonacci' || line.type === 'measure') && line.point1 && line.point2) {
+            line.point1.x = getDrawingPointX(chart, line.point1) + dx;
+            line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
+            line.point2.x = getDrawingPointX(chart, line.point2) + dx;
+            line.point2.y = options.scaleType === 'logarithmic' ? line.point2.y * logMoveRatio : line.point2.y + dy;
+            if (line.type === 'measure') {
+                delete line.point1.time;
+                delete line.point2.time;
+            } else {
+                updatePointTimeFromX(line.point1);
+                updatePointTimeFromX(line.point2);
+            }
+            markDrawingDragChanged(chart);
+        }
+
+        chart.lastMouseX = mouseX;
+        chart.lastMouseY = mouseY;
+    }
+
+    function beginTouchDrawingDrag(target) {
+        chart.touchHoldTimer = null;
+        chart.touchHoldTarget = null;
+        chart.touchMode = 'line-drag';
+        chart.touchMoved = true;
+        chart.selectedLineIndex = target.lineIndex;
+        chart.hoveredLineIndex = target.lineIndex;
+        chart.activeLineHandle = null;
+        chart.isMovingLine = false;
+
+        const line = lines[target.lineIndex];
+        if (!line) return;
+        if (!line.locked) {
+            if (target.kind === 'handle') {
+                chart.activeLineHandle = target.key;
+            } else {
+                chart.isMovingLine = true;
+            }
+            chart.touchDragFeedbackUntil = performance.now() + 260;
+            navigator.vibrate?.(8);
+            beginDrawingDragHistory(chart);
+        }
+
+        syncLineToolbar(chart);
+        chart.render();
+    }
+
+    function scheduleTouchDrawingHold(target) {
+        clearTouchHold();
+        chart.touchHoldTarget = target;
+        chart.touchHoldTimer = setTimeout(() => beginTouchDrawingDrag(target), 320);
     }
 
     canvas.addEventListener('wheel', (e) => {
@@ -640,8 +983,10 @@ export function initEvents(chart) {
         stopInertia(chart);
         closeLineTextEditor(true);
         closeLineMenus();
+        clearTouchHold();
 
         const rect = canvas.getBoundingClientRect();
+        const width = canvas.offsetWidth;
         const height = canvas.offsetHeight - TIME_AXIS_HEIGHT;
 
         chart.touchMoved = false;
@@ -656,16 +1001,45 @@ export function initEvents(chart) {
         }
 
         const point = getTouchPoint(e.touches[0], rect);
-        chart.touchMode = 'pan';
         chart.lastMouseX = point.x;
         chart.lastMouseY = point.y;
+        chart.touchStartX = point.x;
+        chart.touchStartY = point.y;
         chart.lastDragTime = performance.now();
+
+        if (point.x > width - AXIS_MARGIN && point.y <= height) {
+            chart.touchMode = 'price-axis';
+            chart.view.offsetY = 0;
+            chart.crosshair = null;
+            return;
+        }
+
+        if (point.y > height) {
+            chart.touchMode = 'time-axis';
+            chart.crosshair = null;
+            return;
+        }
 
         if (isDrawingAnyTool() && point.x <= canvas.offsetWidth - AXIS_MARGIN && point.y <= height) {
             chart.touchMode = 'draw';
             chart.snapPoint = getSnappedDrawingPoint(chart, point.x, point.y, height);
             chart.requestRender();
+            return;
         }
+
+        if (point.x <= width - AXIS_MARGIN && point.y <= height) {
+            const lineHandle = findLineHandleAt(chart, point.x, point.y, height);
+            if (lineHandle) {
+                scheduleTouchDrawingHold({ kind: 'handle', lineIndex: lineHandle.lineIndex, key: lineHandle.key });
+            } else {
+                const closestLineIndex = findDrawingAt(point.x, point.y, width, height, getLineHitRadius(chart) + 10);
+                if (closestLineIndex !== -1) {
+                    scheduleTouchDrawingHold({ kind: 'line', lineIndex: closestLineIndex });
+                }
+            }
+        }
+
+        chart.touchMode = 'pan';
     }, { passive: false });
 
     canvas.addEventListener('touchmove', (e) => {
@@ -692,11 +1066,41 @@ export function initEvents(chart) {
         const dx = point.x - chart.lastMouseX;
         const dy = point.y - chart.lastMouseY;
         if (Math.hypot(dx, dy) > 3) chart.touchMoved = true;
+        if (chart.touchHoldTimer && Math.hypot(point.x - chart.touchStartX, point.y - chart.touchStartY) > 9) {
+            if (chart.touchHoldTarget?.lineIndex === chart.selectedLineIndex && Math.hypot(point.x - chart.touchStartX, point.y - chart.touchStartY) <= 16) {
+                chart.lastMouseX = point.x;
+                chart.lastMouseY = point.y;
+                return;
+            }
+            clearTouchHold();
+        }
+
+        if (chart.touchMode === 'line-drag') {
+            if (chart.activeLineHandle && chart.selectedLineIndex !== -1) {
+                moveActiveDrawingHandle(point.x, point.y, chartHeight);
+                chart.lastMouseX = point.x;
+                chart.lastMouseY = point.y;
+                chart.requestRender();
+            } else if (chart.isMovingLine && chart.selectedLineIndex !== -1) {
+                moveSelectedDrawing(point.x, point.y, chartHeight);
+                chart.requestRender();
+            }
+            return;
+        }
 
         if (chart.touchMode === 'draw') {
             if (point.x <= width - AXIS_MARGIN && point.y <= chartHeight) {
                 chart.snapPoint = getSnappedDrawingPoint(chart, point.x, point.y, chartHeight);
             }
+            chart.requestRender();
+        } else if (chart.touchMode === 'price-axis') {
+            const clampedDy = Math.sign(dy) * Math.min(36, Math.abs(dy));
+            chart.view.offsetY = 0;
+            chart.zoomPriceAt(chartHeight / 2, chartHeight, Math.exp(-clampedDy * 0.0018));
+            chart.requestRender();
+        } else if (chart.touchMode === 'time-axis') {
+            const clampedDx = Math.sign(dx) * Math.min(36, Math.abs(dx));
+            chart.zoomTimeAt(width - AXIS_MARGIN, Math.exp(-clampedDx * 0.0032));
             chart.requestRender();
         } else {
             const panX = dx * 0.72;
@@ -719,10 +1123,46 @@ export function initEvents(chart) {
     canvas.addEventListener('touchend', (e) => {
         if (!chart.touchMode) return;
         e.preventDefault();
+        clearTouchHold();
 
         const chartHeight = canvas.offsetHeight - TIME_AXIS_HEIGHT;
-        if (chart.touchMode === 'draw' && !chart.touchMoved && chart.snapPoint) {
-            if (chart.lineStartPoint === null) {
+        if (chart.touchMode === 'line-drag') {
+            finalizeSelectedDrawingTimes();
+            finishDrawingDragHistory(chart);
+            chart.isMovingLine = false;
+            chart.activeLineHandle = null;
+            chart.snapPoint = null;
+            syncLineToolbar(chart);
+            chart.render();
+        } else if (chart.touchMode === 'draw' && chart.snapPoint) {
+            if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine) {
+                const before = captureDrawingState(chart);
+                const newLine = {
+                    type: chart.isDrawingHorizontalLine ? 'horizontal' : 'vertical',
+                    scaleType: options.scaleType,
+                    color: '#2962ff',
+                    width: 2,
+                    style: 'solid',
+                    text: '',
+                    textColor: '#131722',
+                    textBold: false,
+                    textSize: 12,
+                    locked: false,
+                    point1: { x: chart.snapPoint.x, y: chart.snapPoint.y, time: chart.snapPoint.time },
+                };
+                lines.push(newLine);
+                pushDrawingHistory(chart, before);
+                chart.selectedLineIndex = lines.length - 1;
+                chart.lineStartPoint = null;
+                chart.snapPoint = null;
+                chart.isDrawingHorizontalLine = false;
+                chart.isDrawingVerticalLine = false;
+                chart.showCrosshair = true;
+                deactivateDrawingButtons();
+                document.getElementById('tool-crosshair')?.classList.add('active');
+                syncLineToolbar(chart);
+                chart.render();
+            } else if (chart.lineStartPoint === null) {
                 chart.lineStartPoint = chart.snapPoint;
             } else {
                 const lineEndPoint = { x: chart.snapPoint.x, y: chart.snapPoint.y, time: chart.snapPoint.time };
@@ -750,6 +1190,8 @@ export function initEvents(chart) {
                 chart.snapPoint = null;
                 chart.isDrawingLine = false;
                 chart.isDrawingInfiniteLine = false;
+                chart.isDrawingHorizontalLine = false;
+                chart.isDrawingVerticalLine = false;
                 chart.isDrawingFibonacci = false;
                 chart.isDrawingMeasure = false;
                 chart.showCrosshair = true;
@@ -758,8 +1200,28 @@ export function initEvents(chart) {
                 syncLineToolbar(chart);
             }
             chart.render();
-        } else if (chart.touchMode === 'pan' && chart.touchMoved) {
-            startPanInertia(chart, chartHeight);
+        } else if (chart.touchMode === 'pan') {
+            if (chart.touchMoved) {
+                startPanInertia(chart, chartHeight);
+            } else {
+                const width = canvas.offsetWidth;
+                const textHit = findLineTextAt(chart, chart.lastMouseX, chart.lastMouseY, width, chartHeight);
+                if (textHit) {
+                    openLineTextEditor(textHit.lineIndex);
+                    chart.touchMode = null;
+                    chart.lastTouchDistance = 0;
+                    chart.lastTouchCenter = null;
+                    chart.touchMoved = false;
+                    return;
+                }
+                const closestLineIndex = findDrawingAt(chart.lastMouseX, chart.lastMouseY, width, chartHeight, getLineHitRadius(chart) + 8);
+                chart.selectedLineIndex = closestLineIndex;
+                chart.hoveredLineIndex = closestLineIndex;
+                chart.activeLineHandle = null;
+                chart.isMovingLine = false;
+                syncLineToolbar(chart);
+                chart.render();
+            }
         }
 
         chart.touchMode = null;
@@ -769,6 +1231,13 @@ export function initEvents(chart) {
     }, { passive: false });
 
     canvas.addEventListener('touchcancel', () => {
+        clearTouchHold();
+        if (chart.touchMode === 'line-drag') {
+            finalizeSelectedDrawingTimes();
+            finishDrawingDragHistory(chart);
+        }
+        chart.isMovingLine = false;
+        chart.activeLineHandle = null;
         chart.touchMode = null;
         chart.lastTouchDistance = 0;
         chart.lastTouchCenter = null;
@@ -799,6 +1268,7 @@ export function initEvents(chart) {
 
         if (mouseX > width - AXIS_MARGIN) {
             chart.isResizingY = true;
+            chart.view.offsetY = 0;
             chart.lastMouseY = mouseY;
             canvas.style.cursor = 'ns-resize';
             return;
@@ -825,38 +1295,7 @@ export function initEvents(chart) {
                 return;
             }
 
-            let minDistance = Infinity;
-            let closestLineIndex = -1;
-            const hitRadius = getLineHitRadius(chart);
-            lines.forEach((line, index) => {
-                if (!line || (!line.start && !line.point1)) return;
-                if (line.type === 'fibonacci') {
-                    const distance = getFibonacciHit(chart, line, mouseX, mouseY, width, height);
-                    if (distance < minDistance && distance < hitRadius) {
-                        minDistance = distance;
-                        closestLineIndex = index;
-                    }
-                } else if (line.type === 'measure') {
-                    const distance = getMeasureHit(chart, line, mouseX, mouseY, height);
-                    if (distance < minDistance && distance < hitRadius) {
-                        minDistance = distance;
-                        closestLineIndex = index;
-                    }
-                } else {
-                    const points = getLinePoints(chart, line, width, height, candleWidth, spacing, 50);
-                    for (let i = 0; i < points.length - 1; i++) {
-                        const x1 = points[i].x;
-                        const y1 = points[i].y;
-                        const x2 = points[i + 1].x;
-                        const y2 = points[i + 1].y;
-                        const distance = distanceToLineSegment(mouseX, mouseY, x1, y1, x2, y2);
-                        if (distance < minDistance && distance < hitRadius) {
-                            minDistance = distance;
-                            closestLineIndex = index;
-                        }
-                    }
-                }
-            });
+            const closestLineIndex = findDrawingAt(mouseX, mouseY, width, height);
 
             if (closestLineIndex !== -1 && !isDrawingAnyTool()) {
                 chart.selectedLineIndex = closestLineIndex;
@@ -865,7 +1304,7 @@ export function initEvents(chart) {
                 syncLineToolbar(chart);
                 chart.lastMouseX = mouseX;
                 chart.lastMouseY = mouseY;
-                canvas.style.cursor = 'pointer';
+                canvas.style.cursor = chart.isMovingLine ? 'grab' : 'default';
                 chart.render();
                 return;
             }
@@ -873,6 +1312,36 @@ export function initEvents(chart) {
             if (isDrawingAnyTool()) {
                 const point = getSnappedDrawingPoint(chart, mouseX, mouseY, height);
                 chart.snapPoint = point;
+                if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine) {
+                    const before = captureDrawingState(chart);
+                    const newLine = {
+                        type: chart.isDrawingHorizontalLine ? 'horizontal' : 'vertical',
+                        scaleType: options.scaleType,
+                        color: '#2962ff',
+                        width: 2,
+                        style: 'solid',
+                        text: '',
+                        textColor: '#131722',
+                        textBold: false,
+                        textSize: 12,
+                        locked: false,
+                        point1: { x: point.x, y: point.y, time: point.time },
+                    };
+                    lines.push(newLine);
+                    pushDrawingHistory(chart, before);
+                    chart.selectedLineIndex = lines.length - 1;
+                    chart.lineStartPoint = null;
+                    chart.snapPoint = null;
+                    chart.isDrawingHorizontalLine = false;
+                    chart.isDrawingVerticalLine = false;
+                    chart.showCrosshair = true;
+                    deactivateDrawingButtons();
+                    document.getElementById('tool-crosshair')?.classList.add('active');
+                    document.activeElement?.blur?.();
+                    syncLineToolbar(chart);
+                    chart.render();
+                    return;
+                }
                 if (chart.lineStartPoint === null) {
                     chart.lineStartPoint = point;
                 } else {
@@ -902,6 +1371,8 @@ export function initEvents(chart) {
                         chart.snapPoint = null;
                         chart.isDrawingLine = false;
                         chart.isDrawingInfiniteLine = false;
+                        chart.isDrawingHorizontalLine = false;
+                        chart.isDrawingVerticalLine = false;
                         chart.isDrawingFibonacci = false;
                         chart.isDrawingMeasure = false;
                         chart.showCrosshair = true;
@@ -968,7 +1439,8 @@ export function initEvents(chart) {
         if (chart.isResizingY) {
             const dy = mouseY - chart.lastMouseY;
             const clampedDy = Math.sign(dy) * Math.min(40, Math.abs(dy));
-            chart.zoomPriceAt(mouseY, chartHeight, Math.exp(-clampedDy * 0.0024));
+            chart.view.offsetY = 0;
+            chart.zoomPriceAt(chartHeight / 2, chartHeight, Math.exp(-clampedDy * 0.0018));
             chart.lastMouseY = mouseY;
             canvas.style.cursor = 'ns-resize';
             chart.requestRender();
@@ -1032,6 +1504,13 @@ export function initEvents(chart) {
                 updatePointTimeFromX(line.start);
                 updatePointTimeFromX(line.end);
                 markDrawingDragChanged(chart);
+            } else if (line.type === 'horizontal' && line.point1) {
+                line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
+                markDrawingDragChanged(chart);
+            } else if (line.type === 'vertical' && line.point1) {
+                line.point1.x = getDrawingPointX(chart, line.point1) + dx;
+                delete line.point1.time;
+                markDrawingDragChanged(chart);
             } else if ((line.type === 'infinite' || line.type === 'fibonacci' || line.type === 'measure') && line.point1 && line.point2) {
                 line.point1.x = getDrawingPointX(chart, line.point1) + dx;
                 line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
@@ -1048,7 +1527,7 @@ export function initEvents(chart) {
             }
             chart.lastMouseX = mouseX;
             chart.lastMouseY = mouseY;
-            canvas.style.cursor = 'pointer';
+            canvas.style.cursor = 'grabbing';
             chart.requestRender();
         } else if (isDrawingAnyTool()) {
             chart.hoveredLineIndex = -1;
@@ -1119,7 +1598,7 @@ export function initEvents(chart) {
                         ? textHitBeforeLineCheck.lineIndex
                         : hoveredLineIndex;
                 const textHit = findLineTextAt(chart, mouseX, mouseY, width, chartHeight);
-                canvas.style.cursor = textHit ? 'text' : lineHandle ? 'grab' : isNearLine ? 'pointer' : 'default';
+            canvas.style.cursor = textHit ? 'text' : lineHandle ? 'grab' : isNearLine ? 'pointer' : 'default';
             }
             chart.requestRender();
         } else {
@@ -1183,7 +1662,7 @@ export function initEvents(chart) {
                 return;
             }
             if (key === 'c' && chart.selectedLineIndex !== -1) {
-                chart.copiedDrawing = cloneDrawing(lines[chart.selectedLineIndex]);
+                copySelectedDrawing();
                 e.preventDefault();
                 return;
             }
@@ -1194,13 +1673,7 @@ export function initEvents(chart) {
             }
         }
         if ((e.key === 'Delete' || e.key === 'Backspace') && chart.selectedLineIndex !== -1) {
-            const before = captureDrawingState(chart);
-            lines.splice(chart.selectedLineIndex, 1);
-            pushDrawingHistory(chart, before);
-            chart.selectedLineIndex = -1;
-            chart.activeLineHandle = null;
-            syncLineToolbar(chart);
-            chart.render();
+            deleteSelectedLine(chart);
         }
     });
 
@@ -1253,21 +1726,63 @@ export function initEvents(chart) {
         menuId: 'line-text-size-menu',
         onSelect: (value) => mutateSelectedLine(chart, line => { line.textSize = value || 12; }),
     });
-    document.getElementById('line-text-bold')?.addEventListener('click', () => {
-        mutateSelectedLine(chart, line => { line.textBold = !line.textBold; });
-    });
-    document.getElementById('line-lock')?.addEventListener('click', () => {
+    setupMoreMenu();
+    function setupMobileCopyPasteButton(buttonId, action) {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+        let lastPointerTime = 0;
+        button.addEventListener('pointerup', (e) => {
+            if (button.disabled) return;
+            e.preventDefault();
+            e.stopPropagation();
+            lastPointerTime = performance.now();
+            closeLineMenus();
+            action();
+        });
+        button.addEventListener('click', (e) => {
+            if (button.disabled || performance.now() - lastPointerTime < 500) return;
+            e.stopPropagation();
+            closeLineMenus();
+            action();
+        });
+    }
+    function setupPointerButton(buttonId, action) {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+        let lastPointerTime = 0;
+        button.addEventListener('pointerup', (e) => {
+            if (button.disabled) return;
+            e.preventDefault();
+            e.stopPropagation();
+            lastPointerTime = performance.now();
+            closeLineMenus();
+            action();
+        });
+        button.addEventListener('click', (e) => {
+            if (button.disabled || performance.now() - lastPointerTime < 500) return;
+            e.stopPropagation();
+            closeLineMenus();
+            action();
+        });
+    }
+    setupMobileCopyPasteButton('line-copy', copySelectedDrawing);
+    setupMobileCopyPasteButton('line-paste', pasteCopiedDrawing);
+    setupMobileCopyPasteButton('line-more-copy', copySelectedDrawing);
+    setupMobileCopyPasteButton('line-more-paste', pasteCopiedDrawing);
+    setupMobileCopyPasteButton('line-more-lock', () => {
         mutateSelectedLine(chart, line => { line.locked = !line.locked; });
     });
-    document.getElementById('line-delete')?.addEventListener('click', () => {
-        if (chart.selectedLineIndex === -1) return;
-        const before = captureDrawingState(chart);
-        lines.splice(chart.selectedLineIndex, 1);
-        pushDrawingHistory(chart, before);
-        chart.selectedLineIndex = -1;
-        chart.activeLineHandle = null;
-        syncLineToolbar(chart);
-        chart.render();
+    setupMobileCopyPasteButton('line-more-delete', () => {
+        deleteSelectedLine(chart);
+    });
+    setupPointerButton('line-text-bold', () => {
+        mutateSelectedLine(chart, line => { line.textBold = !line.textBold; });
+    });
+    setupPointerButton('line-lock', () => {
+        mutateSelectedLine(chart, line => { line.locked = !line.locked; });
+    });
+    setupPointerButton('line-delete', () => {
+        deleteSelectedLine(chart);
     });
 
     const intervalSelect = document.getElementById('interval-select');
@@ -1303,6 +1818,8 @@ export function initEvents(chart) {
             chart.showCrosshair = !chart.showCrosshair;
             chart.isDrawingLine = false;
             chart.isDrawingInfiniteLine = false;
+            chart.isDrawingHorizontalLine = false;
+            chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
             chart.lineStartPoint = null;
@@ -1332,6 +1849,8 @@ export function initEvents(chart) {
         lineButton.addEventListener('click', () => {
             chart.isDrawingLine = !chart.isDrawingLine;
             chart.isDrawingInfiniteLine = false;
+            chart.isDrawingHorizontalLine = false;
+            chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
             chart.showCrosshair = !chart.isDrawingLine;
@@ -1343,6 +1862,8 @@ export function initEvents(chart) {
             lineButton.classList.toggle('active');
             crosshairButton?.classList.toggle('active', !chart.isDrawingLine);
             document.getElementById('tool-infinite-line')?.classList.remove('active');
+            document.getElementById('tool-horizontal-line')?.classList.remove('active');
+            document.getElementById('tool-vertical-line')?.classList.remove('active');
             document.getElementById('tool-fibonacci')?.classList.remove('active');
             document.getElementById('tool-measure')?.classList.remove('active');
             chart.render();
@@ -1356,6 +1877,8 @@ export function initEvents(chart) {
         infiniteLineButton.addEventListener('click', () => {
             chart.isDrawingInfiniteLine = !chart.isDrawingInfiniteLine;
             chart.isDrawingLine = false;
+            chart.isDrawingHorizontalLine = false;
+            chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
             chart.showCrosshair = !chart.isDrawingInfiniteLine;
@@ -1367,6 +1890,8 @@ export function initEvents(chart) {
             infiniteLineButton.classList.toggle('active');
             crosshairButton?.classList.toggle('active', !chart.isDrawingInfiniteLine);
             lineButton?.classList.remove('active');
+            document.getElementById('tool-horizontal-line')?.classList.remove('active');
+            document.getElementById('tool-vertical-line')?.classList.remove('active');
             document.getElementById('tool-fibonacci')?.classList.remove('active');
             document.getElementById('tool-measure')?.classList.remove('active');
             chart.render();
@@ -1375,12 +1900,70 @@ export function initEvents(chart) {
         console.error('tool-infinite-line element not found');
     }
 
+    const horizontalLineButton = document.getElementById('tool-horizontal-line');
+    if (horizontalLineButton) {
+        horizontalLineButton.addEventListener('click', () => {
+            chart.isDrawingHorizontalLine = !chart.isDrawingHorizontalLine;
+            chart.isDrawingLine = false;
+            chart.isDrawingInfiniteLine = false;
+            chart.isDrawingVerticalLine = false;
+            chart.isDrawingFibonacci = false;
+            chart.isDrawingMeasure = false;
+            chart.showCrosshair = !chart.isDrawingHorizontalLine;
+            chart.lineStartPoint = null;
+            chart.snapPoint = null;
+            chart.activeLineHandle = null;
+            chart.selectedLineIndex = -1;
+            syncLineToolbar(chart);
+            horizontalLineButton.classList.toggle('active');
+            crosshairButton?.classList.toggle('active', !chart.isDrawingHorizontalLine);
+            lineButton?.classList.remove('active');
+            infiniteLineButton?.classList.remove('active');
+            document.getElementById('tool-vertical-line')?.classList.remove('active');
+            fibonacciButton?.classList.remove('active');
+            measureButton?.classList.remove('active');
+            chart.render();
+        });
+    } else {
+        console.error('tool-horizontal-line element not found');
+    }
+
+    const verticalLineButton = document.getElementById('tool-vertical-line');
+    if (verticalLineButton) {
+        verticalLineButton.addEventListener('click', () => {
+            chart.isDrawingVerticalLine = !chart.isDrawingVerticalLine;
+            chart.isDrawingLine = false;
+            chart.isDrawingInfiniteLine = false;
+            chart.isDrawingHorizontalLine = false;
+            chart.isDrawingFibonacci = false;
+            chart.isDrawingMeasure = false;
+            chart.showCrosshair = !chart.isDrawingVerticalLine;
+            chart.lineStartPoint = null;
+            chart.snapPoint = null;
+            chart.activeLineHandle = null;
+            chart.selectedLineIndex = -1;
+            syncLineToolbar(chart);
+            verticalLineButton.classList.toggle('active');
+            crosshairButton?.classList.toggle('active', !chart.isDrawingVerticalLine);
+            lineButton?.classList.remove('active');
+            infiniteLineButton?.classList.remove('active');
+            horizontalLineButton?.classList.remove('active');
+            fibonacciButton?.classList.remove('active');
+            measureButton?.classList.remove('active');
+            chart.render();
+        });
+    } else {
+        console.error('tool-vertical-line element not found');
+    }
+
     const fibonacciButton = document.getElementById('tool-fibonacci');
     if (fibonacciButton) {
         fibonacciButton.addEventListener('click', () => {
             chart.isDrawingFibonacci = !chart.isDrawingFibonacci;
             chart.isDrawingLine = false;
             chart.isDrawingInfiniteLine = false;
+            chart.isDrawingHorizontalLine = false;
+            chart.isDrawingVerticalLine = false;
             chart.isDrawingMeasure = false;
             chart.showCrosshair = !chart.isDrawingFibonacci;
             chart.lineStartPoint = null;
@@ -1392,6 +1975,8 @@ export function initEvents(chart) {
             crosshairButton?.classList.toggle('active', !chart.isDrawingFibonacci);
             lineButton?.classList.remove('active');
             infiniteLineButton?.classList.remove('active');
+            horizontalLineButton?.classList.remove('active');
+            verticalLineButton?.classList.remove('active');
             document.getElementById('tool-measure')?.classList.remove('active');
             chart.render();
         });
@@ -1405,6 +1990,8 @@ export function initEvents(chart) {
             chart.isDrawingMeasure = !chart.isDrawingMeasure;
             chart.isDrawingLine = false;
             chart.isDrawingInfiniteLine = false;
+            chart.isDrawingHorizontalLine = false;
+            chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.showCrosshair = !chart.isDrawingMeasure;
             chart.lineStartPoint = null;
@@ -1416,6 +2003,8 @@ export function initEvents(chart) {
             crosshairButton?.classList.toggle('active', !chart.isDrawingMeasure);
             lineButton?.classList.remove('active');
             infiniteLineButton?.classList.remove('active');
+            horizontalLineButton?.classList.remove('active');
+            verticalLineButton?.classList.remove('active');
             fibonacciButton?.classList.remove('active');
             chart.render();
         });
@@ -1439,6 +2028,8 @@ export function initEvents(chart) {
             chart.selectedLineIndex = -1;
             chart.isDrawingLine = false;
             chart.isDrawingInfiniteLine = false;
+            chart.isDrawingHorizontalLine = false;
+            chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
             chart.lineStartPoint = null;

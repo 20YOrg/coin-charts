@@ -109,6 +109,158 @@ function renderMeasure(ctx, line, isSelected, chart, chartWidth, chartHeight, sl
     ctx.restore();
 }
 
+function applyLineStyle(ctx, line) {
+    ctx.strokeStyle = line.color || '#2962ff';
+    ctx.lineWidth = line.width || 2;
+    if (line.style === 'dashed') ctx.setLineDash([8, 5]);
+    if (line.style === 'dotted') ctx.setLineDash([2, 5]);
+}
+
+function strokeInteractionHalo(ctx, color, lineWidth, isStrong = false) {
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth + (isStrong ? 9 : 6);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawStepBadge(ctx, x, y, label, color = '#2962ff') {
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y + 0.5);
+    ctx.restore();
+}
+
+function drawTinyStatusLabel(ctx, x, y, text, chartWidth, chartHeight) {
+    ctx.save();
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    const width = ctx.measureText(text).width + 12;
+    const left = Math.max(4, Math.min(chartWidth - width - 4, x + 12));
+    const top = Math.max(4, Math.min(chartHeight - 22, y - 34));
+    ctx.fillStyle = 'rgba(19, 23, 34, 0.86)';
+    ctx.beginPath();
+    ctx.roundRect(left, top, width, 20, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, left + width / 2, top + 10);
+    ctx.restore();
+}
+
+function drawEditingCaret(ctx, label, textSize) {
+    const blinkOn = Math.floor(performance.now() / 530) % 2 === 0;
+    if (!blinkOn) return;
+    const textWidth = ctx.measureText(label).width;
+    const x = label ? textWidth / 2 + 2 : 2;
+    const baselineY = -Math.max(8, textSize * 0.65);
+    const topY = baselineY - textSize - 2;
+    const bottomY = baselineY + 3;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#131722';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, topY);
+    ctx.lineTo(x, bottomY);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth) {
+    const point = line.point1;
+    if (!point) return;
+    let labelPoint = null;
+    const lineIndex = chart.lines.indexOf(line);
+    const isHovered = lineIndex === chart.hoveredLineIndex;
+    const isDragging = isSelected && (chart.isMovingLine || chart.activeLineHandle);
+    ctx.save();
+    applyLineStyle(ctx, line);
+    ctx.beginPath();
+    if (line.type === 'horizontal') {
+        const y = priceToY(point.y, chartHeight, chart.view, chart.options.scaleType);
+        if (!Number.isFinite(y)) {
+            ctx.restore();
+            return;
+        }
+        ctx.moveTo(0, Math.round(y) + 0.5);
+        ctx.lineTo(chartWidth, Math.round(y) + 0.5);
+        const x = Math.max(10, Math.min(chartWidth - 10, getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX));
+        labelPoint = { x: x + (line.textOffsetX || 0), y: y + (line.textOffsetY || 0), angle: 0 };
+        if (isSelected) {
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#131722';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+    } else {
+        const x = getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX;
+        if (!Number.isFinite(x)) {
+            ctx.restore();
+            return;
+        }
+        ctx.moveTo(Math.round(x) + 0.5, 0);
+        ctx.lineTo(Math.round(x) + 0.5, chartHeight);
+        const y = Math.max(10, Math.min(chartHeight - 10, priceToY(point.y, chartHeight, chart.view, chart.options.scaleType)));
+        labelPoint = { x: x + (line.textOffsetX || 0), y: y + (line.textOffsetY || 0), angle: -Math.PI / 2 };
+        if (isSelected) {
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#131722';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+    }
+            const isTouchPulse = lineIndex === chart.selectedLineIndex && chart.touchDragFeedbackUntil && performance.now() < chart.touchDragFeedbackUntil;
+            if (isSelected || isHovered || isTouchPulse) {
+                strokeInteractionHalo(ctx, (isDragging || isTouchPulse) ? 'rgba(41, 98, 255, 0.24)' : 'rgba(41, 98, 255, 0.13)', line.width || 2, isDragging || isTouchPulse);
+            }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const showText = labelPoint
+        && (line.text || lineIndex === chart.hoveredLineIndex || lineIndex === chart.editingLineTextIndex);
+    if (showText) {
+        const label = line.text || (lineIndex === chart.editingLineTextIndex ? '' : '+ Add text');
+        const textSize = line.textSize || 12;
+        ctx.save();
+        ctx.translate(labelPoint.x, labelPoint.y);
+        ctx.rotate(labelPoint.angle);
+        ctx.fillStyle = line.text ? (line.textColor || '#131722') : '#6fcad7';
+        ctx.font = `${line.textBold ? '700' : '400'} ${textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(label, 0, -Math.max(8, textSize * 0.65));
+        if (lineIndex === chart.editingLineTextIndex) {
+            drawEditingCaret(ctx, line.text || '', textSize);
+        }
+        ctx.restore();
+    }
+    ctx.restore();
+}
+
 function renderFibonacci(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth) {
     const point1 = line.point1;
     const point2 = line.point2;
@@ -194,13 +346,7 @@ export function renderGrid(ctx, options, data, view, width, height, candleWidth,
         ctx.stroke();
     });
 
-    ctx.strokeStyle = '#d1d4dc';
-    ctx.beginPath();
-    ctx.moveTo(chartWidth + 0.5, 0);
-    ctx.lineTo(chartWidth + 0.5, chartHeight);
-    ctx.moveTo(0, chartHeight + 0.5);
-    ctx.lineTo(width, chartHeight + 0.5);
-    ctx.stroke();
+    ctx.setLineDash([]);
 }
 
 export function renderCandles(ctx, options, data, view, width, height, candleWidth, spacing) {
@@ -309,11 +455,18 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                 renderMeasure(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth);
                 return;
             }
+            if (line.type === 'horizontal' || line.type === 'vertical') {
+                renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth);
+                return;
+            }
             const points = getLinePoints(chart, line, width, chartHeight, candleWidth, spacing, 50);
             if (!points || points.length < 2) {
                 console.warn('No valid points for line:', line);
                 return;
             }
+            const isHovered = index === chart.hoveredLineIndex;
+            const isDragging = isSelected && (chart.isMovingLine || chart.activeLineHandle);
+            const isTouchPulse = index === chart.selectedLineIndex && chart.touchDragFeedbackUntil && performance.now() < chart.touchDragFeedbackUntil;
             ctx.strokeStyle = line.color || (isSelected ? '#2962ff' : '#f23645');
             ctx.lineWidth = line.width || (isSelected ? 3 : 2);
             if (line.style === 'dashed') ctx.setLineDash([8, 5]);
@@ -324,10 +477,13 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                 if (i === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             }
+            if (isSelected || isHovered || isTouchPulse) {
+                strokeInteractionHalo(ctx, (isDragging || isTouchPulse) ? 'rgba(41, 98, 255, 0.24)' : 'rgba(41, 98, 255, 0.13)', line.width || (isSelected ? 3 : 2), isDragging || isTouchPulse);
+            }
             ctx.stroke();
             ctx.setLineDash([]);
 
-            const showLineText = (line.text || (index === chart.hoveredLineIndex && index !== chart.editingLineTextIndex))
+            const showLineText = (line.text || index === chart.hoveredLineIndex || index === chart.editingLineTextIndex)
                 && points.length >= 2;
             if (showLineText) {
                 const midIndex = Math.floor(points.length / 2);
@@ -336,9 +492,9 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                 const nextPoint = points[Math.min(points.length - 1, midIndex + 1)];
                 let angle = Math.atan2(nextPoint.y - prevPoint.y, nextPoint.x - prevPoint.x);
                 if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
-                const label = line.text || '+ Add text';
+                const label = line.text || (index === chart.editingLineTextIndex ? '' : '+ Add text');
                 ctx.save();
-                ctx.translate(midPoint.x, midPoint.y);
+                ctx.translate(midPoint.x + (line.textOffsetX || 0), midPoint.y + (line.textOffsetY || 0));
                 ctx.rotate(angle);
                 ctx.fillStyle = line.text ? (line.textColor || '#131722') : '#6fcad7';
                 const textSize = line.textSize || 12;
@@ -346,6 +502,9 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'bottom';
                 ctx.fillText(label, 0, -Math.max(8, textSize * 0.65));
+                if (index === chart.editingLineTextIndex) {
+                    drawEditingCaret(ctx, line.text || '', textSize);
+                }
                 ctx.restore();
             }
 
@@ -378,7 +537,7 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
 }
 
 export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, spacing) {
-    if (!chart.snapPoint || (!chart.isDrawingLine && !chart.isDrawingInfiniteLine && !chart.isDrawingFibonacci && !chart.isDrawingMeasure)) return;
+    if (!chart.snapPoint || (!chart.isDrawingLine && !chart.isDrawingInfiniteLine && !chart.isDrawingHorizontalLine && !chart.isDrawingVerticalLine && !chart.isDrawingFibonacci && !chart.isDrawingMeasure)) return;
 
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
@@ -445,11 +604,47 @@ export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, sp
             ctx.arc(startX, startY, 4, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
+            drawStepBadge(ctx, startX, startY, '1');
         }
+        if (snapX >= 0 && snapX <= chartWidth && snapY >= 0 && snapY <= chartHeight) {
+            drawStepBadge(ctx, snapX, snapY, '2');
+            drawTinyStatusLabel(ctx, snapX, snapY, 'Set second point', chartWidth, chartHeight);
+        }
+    } else if (!(chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine)) {
+        drawTinyStatusLabel(ctx, snapX, snapY, 'Set first point', chartWidth, chartHeight);
+    }
+
+    if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine) {
+        ctx.setLineDash([4, 4]);
+        renderAxisLine(ctx, {
+            type: chart.isDrawingHorizontalLine ? 'horizontal' : 'vertical',
+            scaleType: chart.options.scaleType,
+            point1: { ...chart.snapPoint },
+            color: '#2962ff',
+            width: 2,
+            style: 'solid',
+        }, true, chart, chartWidth, chartHeight, slotWidth);
+        ctx.setLineDash([]);
+        drawTinyStatusLabel(ctx, snapX, snapY, chart.isDrawingHorizontalLine ? 'Place horizontal line' : 'Place vertical line', chartWidth, chartHeight);
     }
 
     if (snapX >= 0 && snapX <= chartWidth && snapY >= 0 && snapY <= chartHeight) {
         const radius = chart.snapPoint.source === 'ohlc' ? 5 : 4;
+        if (chart.snapPoint.source === 'ohlc') {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(41, 98, 255, 0.24)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 4]);
+            ctx.beginPath();
+            ctx.moveTo(Math.round(snapX) + 0.5, Math.max(0, snapY - 28));
+            ctx.lineTo(Math.round(snapX) + 0.5, Math.min(chartHeight, snapY + 28));
+            ctx.moveTo(Math.max(0, snapX - 28), Math.round(snapY) + 0.5);
+            ctx.lineTo(Math.min(chartWidth, snapX + 28), Math.round(snapY) + 0.5);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
         ctx.beginPath();
         ctx.arc(snapX, snapY, radius, 0, Math.PI * 2);
         ctx.fill();
@@ -461,6 +656,20 @@ export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, sp
             ctx.globalAlpha = 0.18;
             ctx.fillStyle = '#2962ff';
             ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const label = 'OHLC';
+            const labelWidth = ctx.measureText(label).width + 12;
+            const labelX = Math.max(4, Math.min(chartWidth - labelWidth - 4, snapX + 10));
+            const labelY = Math.max(4, Math.min(chartHeight - 22, snapY - 30));
+            ctx.fillStyle = 'rgba(41, 98, 255, 0.92)';
+            ctx.beginPath();
+            ctx.roundRect(labelX, labelY, labelWidth, 20, 4);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(label, labelX + labelWidth / 2, labelY + 10);
         }
     }
 

@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Coin Charts</title>
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/tool-menu.css">
@@ -68,6 +68,18 @@
                     <path d="M3 15 15 3" />
                     <path d="M10 3h5v5" />
                     <path d="M8 15H3v-5" />
+                </svg>
+            </button>
+            <button id="tool-horizontal-line" title="Horizontal Line" aria-label="Horizontal Line">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M3 9h12" />
+                    <circle cx="9" cy="9" r="2" />
+                </svg>
+            </button>
+            <button id="tool-vertical-line" title="Vertical Line" aria-label="Vertical Line">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M9 3v12" />
+                    <circle cx="9" cy="9" r="2" />
                 </svg>
             </button>
             <button id="tool-fibonacci" title="Draw Fibonacci Levels" aria-label="Draw Fibonacci Levels">
@@ -179,6 +191,44 @@
                 <span class="bold-icon">B</span>
             </button>
             <div class="line-toolbar-divider" aria-hidden="true"></div>
+            <div class="more-control mobile-only-tool">
+                <button id="line-more-button" type="button" title="More line actions" aria-label="More line actions">
+                    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                        <circle cx="4" cy="9" r="1.1" />
+                        <circle cx="9" cy="9" r="1.1" />
+                        <circle cx="14" cy="9" r="1.1" />
+                    </svg>
+                </button>
+                <div id="line-more-menu" class="more-menu" hidden>
+                    <button id="line-more-copy" type="button">
+                        <span>Copy</span>
+                    </button>
+                    <button id="line-more-paste" type="button" disabled>
+                        <span>Paste</span>
+                    </button>
+                    <button id="line-more-lock" type="button">
+                        <span>Lock</span>
+                    </button>
+                    <button id="line-more-delete" type="button">
+                        <span>Delete</span>
+                    </button>
+                </div>
+            </div>
+            <button id="line-copy" class="mobile-only-tool" type="button" title="Copy line" aria-label="Copy line">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <rect x="6" y="5" width="8" height="10" rx="1.5" />
+                    <path d="M4 12V4.5A1.5 1.5 0 0 1 5.5 3H11" />
+                </svg>
+            </button>
+            <button id="line-paste" class="mobile-only-tool" type="button" title="Paste line" aria-label="Paste line" disabled>
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M6 4.5h6" />
+                    <path d="M7 3h4l1 2H6l1-2z" />
+                    <rect x="4.5" y="5.5" width="9" height="9.5" rx="1.5" />
+                    <path d="M7 9h4" />
+                    <path d="M7 12h3" />
+                </svg>
+            </button>
             <button id="line-lock" type="button" title="Lock line" aria-label="Lock line">
                 <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
                     <rect x="4" y="8" width="10" height="7" rx="1.5" />

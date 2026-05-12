@@ -21,12 +21,13 @@
     margin: 0;
     padding: 0;
     background: transparent;
-    color: #131722;
+    color: transparent;
     cursor: pointer;
     transition: background-color 120ms ease, color 120ms ease;
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
 }
 
 #tool-menu button:hover {
@@ -36,6 +37,22 @@
 #tool-menu button.active {
     background: #e7efff;
     color: #2962ff;
+}
+
+#tool-menu button.active::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 2px;
+    height: 3px;
+    border-radius: 999px;
+    background: currentColor;
+}
+
+#chart-container.drawing-mode #tool-menu button.active {
+    background: #dce8ff;
+    box-shadow: inset 0 0 0 1px rgba(41, 98, 255, 0.18);
 }
 
 #tool-menu button:disabled {
@@ -81,6 +98,16 @@
     border: 1px solid #e0e3eb;
     border-radius: 8px;
     box-shadow: 0 8px 22px rgba(19, 23, 34, 0.14);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+#chart-container.line-selected-mode #line-toolbar {
+    border-color: rgba(41, 98, 255, 0.28);
+}
+
+#chart-container.line-dragging-mode #line-toolbar {
+    border-color: rgba(41, 98, 255, 0.45);
+    box-shadow: 0 8px 22px rgba(41, 98, 255, 0.16);
 }
 
 #line-toolbar[hidden] {
@@ -105,6 +132,17 @@
 #line-toolbar button.active {
     background: #f0f3fa;
     color: #2962ff;
+}
+
+#line-toolbar button:disabled {
+    color: #b2b5be;
+    cursor: default;
+    opacity: 0.55;
+}
+
+#line-toolbar button:disabled:hover {
+    background: transparent;
+    color: #b2b5be;
 }
 
 #line-toolbar svg {
@@ -211,6 +249,10 @@
     position: relative;
 }
 
+.more-control {
+    position: relative;
+}
+
 .style-button {
     width: 42px !important;
     height: 32px !important;
@@ -265,7 +307,7 @@
     border-radius: 0 !important;
     color: #131722 !important;
     font-size: 14px !important;
-    text-align: left;
+    text-align: center;
 }
 
 .style-menu button.active {
@@ -304,6 +346,38 @@
     border: 1px solid #e0e3eb;
     border-radius: 8px;
     box-shadow: 0 8px 22px rgba(19, 23, 34, 0.16);
+}
+
+.more-menu {
+    position: absolute;
+    right: 0;
+    top: 36px;
+    z-index: 40;
+    width: 112px;
+    padding: 4px 0;
+    background: #ffffff;
+    border: 1px solid #e0e3eb;
+    border-radius: 8px;
+    box-shadow: 0 8px 22px rgba(19, 23, 34, 0.16);
+}
+
+.more-menu[hidden] {
+    display: none;
+}
+
+.more-menu button {
+    width: 100% !important;
+    height: 34px !important;
+    justify-content: flex-start !important;
+    padding: 0 12px !important;
+    border-radius: 0 !important;
+    color: #131722 !important;
+    font-size: 13px !important;
+}
+
+.more-menu button.active,
+.more-menu button:hover {
+    background: #f0f3fa !important;
 }
 
 .choice-menu[hidden] {
@@ -370,6 +444,10 @@
     transform: translateY(-1px);
 }
 
+.mobile-only-tool {
+    display: none !important;
+}
+
 .toolbar-text-icon {
     display: inline-block;
     font-size: 17px;
@@ -389,11 +467,12 @@
     color: #131722;
     font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     line-height: 18px;
-    text-align: center;
+    text-align: left;
     outline: none;
     color: transparent;
-    caret-color: #131722;
-    transform-origin: center bottom;
+    caret-color: transparent;
+    opacity: 0.01;
+    transform-origin: left top;
 }
 
 #line-text-editor::placeholder {
@@ -425,15 +504,173 @@
 
     #line-toolbar {
         left: 8px;
-        right: 8px;
+        right: auto;
         top: 52px;
-        width: auto;
-        height: 40px;
-        overflow-x: auto;
+        bottom: auto;
+        width: max-content;
+        max-width: calc(100% - 16px);
+        height: auto;
+        min-height: 40px;
+        max-height: none;
+        flex-wrap: nowrap;
+        align-content: center;
+        justify-content: flex-start;
+        gap: 4px;
+        padding: 4px;
+        overflow: visible;
         scrollbar-width: none;
+        border-radius: 8px;
     }
 
     #line-toolbar::-webkit-scrollbar {
         display: none;
+    }
+
+    #line-toolbar button {
+        flex: 0 0 auto;
+        width: 34px;
+        height: 34px;
+        border-radius: 4px;
+    }
+
+    #line-toolbar button:hover {
+        background: transparent !important;
+        color: #131722 !important;
+    }
+
+    #line-toolbar button.active,
+    #line-toolbar button.active:hover {
+        background: #f0f3fa !important;
+        color: #2962ff !important;
+    }
+
+    #line-toolbar button:disabled,
+    #line-toolbar button:disabled:hover {
+        color: #b2b5be;
+        background: transparent;
+    }
+
+    .line-toolbar-divider {
+        height: 22px;
+        margin: 0;
+    }
+
+    .color-button {
+        width: 34px !important;
+        min-width: 34px;
+        height: 34px !important;
+        display: inline-grid !important;
+        place-items: center;
+        gap: 0;
+    }
+
+    .color-button svg,
+    .color-button .text-color-icon {
+        transform: translateY(-2px);
+    }
+
+    .style-button {
+        width: 40px !important;
+        height: 34px !important;
+    }
+
+    .choice-button {
+        min-width: 42px;
+        height: 34px !important;
+        padding: 0 8px !important;
+    }
+
+    .text-size-button {
+        min-width: 50px;
+    }
+
+    .style-preview {
+        width: 22px;
+    }
+
+    .toolbar-swatch {
+        left: 6px;
+        right: 6px;
+    }
+
+    #line-width-label {
+        font-size: 13px;
+    }
+
+    #line-text-size-label {
+        min-width: 14px;
+        font-size: 11px;
+    }
+
+    @media (max-width: 390px) {
+        #line-toolbar {
+            gap: 3px;
+            padding: 4px;
+        }
+
+        #line-toolbar button {
+            width: 32px;
+            height: 32px;
+        }
+
+        .color-button {
+            width: 32px !important;
+            min-width: 32px;
+            height: 32px !important;
+        }
+
+        .style-button {
+            width: 36px !important;
+            height: 32px !important;
+        }
+
+        .choice-button {
+            min-width: 38px;
+            height: 32px !important;
+            padding-left: 6px !important;
+            padding-right: 6px !important;
+        }
+
+        .text-size-button {
+            min-width: 44px;
+        }
+    }
+
+    .mobile-only-tool {
+        display: inline-flex !important;
+    }
+
+    #line-copy,
+    #line-paste,
+    #line-lock,
+    #line-delete {
+        display: none !important;
+    }
+
+    .color-menu,
+    .style-menu,
+    .choice-menu,
+    .more-menu {
+        position: fixed;
+        z-index: 90;
+    }
+
+    .color-menu {
+        width: 204px;
+        grid-template-columns: repeat(6, 22px);
+        gap: 8px;
+        padding: 14px;
+        box-sizing: border-box;
+    }
+
+    .color-menu button {
+        width: 22px !important;
+        height: 22px !important;
+    }
+
+    #line-text-editor {
+        font-size: 16px !important;
+        line-height: 18px;
+        -webkit-text-size-adjust: 100%;
     }
 }

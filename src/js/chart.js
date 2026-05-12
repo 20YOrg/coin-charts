@@ -33,6 +33,8 @@ function sanitizeDrawing(line) {
         textColor: typeof line.textColor === 'string' ? line.textColor : '#131722',
         textBold: Boolean(line.textBold),
         textSize: Number.isFinite(line.textSize) ? Math.min(32, Math.max(8, line.textSize)) : 12,
+        textOffsetX: Number.isFinite(line.textOffsetX) ? Math.max(-240, Math.min(240, line.textOffsetX)) : 0,
+        textOffsetY: Number.isFinite(line.textOffsetY) ? Math.max(-180, Math.min(180, line.textOffsetY)) : 0,
         locked: Boolean(line.locked),
     };
 
@@ -42,6 +44,10 @@ function sanitizeDrawing(line) {
 
     if ((line.type === 'infinite' || line.type === 'fibonacci' || line.type === 'measure') && isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2)) {
         return { ...base, point1: sanitizeDrawingPoint(line.point1), point2: sanitizeDrawingPoint(line.point2) };
+    }
+
+    if ((line.type === 'horizontal' || line.type === 'vertical') && isValidDrawingPoint(line.point1)) {
+        return { ...base, point1: sanitizeDrawingPoint(line.point1) };
     }
 
     return null;
@@ -88,6 +94,8 @@ export class Chart {
         ];
         this.isDrawingLine = false;
         this.isDrawingInfiniteLine = false;
+        this.isDrawingHorizontalLine = false;
+        this.isDrawingVerticalLine = false;
         this.isDrawingFibonacci = false;
         this.isDrawingMeasure = false;
         this.lineStartPoint = null;
@@ -151,6 +159,8 @@ export class Chart {
         if (line.type === 'finite') {
             this.ensurePointTime(line.start);
             this.ensurePointTime(line.end);
+        } else if (line.type === 'horizontal' || line.type === 'vertical') {
+            this.ensurePointTime(line.point1);
         } else {
             this.ensurePointTime(line.point1);
             this.ensurePointTime(line.point2);
@@ -160,6 +170,7 @@ export class Chart {
     saveDrawings() {
         if (!this.drawingsReady) return;
         try {
+            this.lines.forEach(line => this.ensureDrawingTimes(line));
             const drawings = this.lines.map(sanitizeDrawing).filter(Boolean);
             localStorage.setItem(DRAWINGS_STORAGE_KEY, JSON.stringify(drawings));
         } catch (error) {
@@ -510,7 +521,7 @@ export class Chart {
     }
 
     getNicePriceStep(range, chartHeight) {
-        const targetSpacing = this.isCompactViewport() ? 132 : 92;
+        const targetSpacing = this.isCompactViewport() ? 72 : 44;
         const targetTickCount = Math.max(2, Math.floor(chartHeight / targetSpacing));
         const rawStep = range / targetTickCount;
         const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(rawStep, 1e-10))));
@@ -523,7 +534,7 @@ export class Chart {
     }
 
     getStablePriceStep(range, chartHeight) {
-        const targetSpacing = this.isCompactViewport() ? 132 : 92;
+        const targetSpacing = this.isCompactViewport() ? 72 : 44;
         const targetTickCount = Math.max(2, Math.floor(chartHeight / targetSpacing));
         const currentStep = this.view.priceStep;
         if (currentStep) {
@@ -664,6 +675,7 @@ export class Chart {
         if (!startDate || !endDate) return [];
 
         const ticks = [];
+        let lastTickMonthKey = null;
         const addTick = (date, label, emphasis = false) => {
             const index = this.getIndexForDate(date);
             if (index < axisStartIndex || index >= endIndex) return;
@@ -673,6 +685,10 @@ export class Chart {
         };
 
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const formatDayLabel = (date) => {
+            if (date.getUTCDate() === 1) return monthNames[date.getUTCMonth()];
+            return String(date.getUTCDate());
+        };
         const spanDays = Math.max(1, (endDate - startDate) / 86400000);
         const monthSpan = Math.max(
             1,
@@ -681,11 +697,13 @@ export class Chart {
                 - startDate.getUTCMonth()
                 + 1
         );
-        const minTimeLabelSpacing = this.isCompactViewport() ? 118 : 105;
+        const minTimeLabelSpacing = this.isCompactViewport() ? 84 : 64;
         const maxTimeTicks = Math.max(2, Math.floor(chartWidth / minTimeLabelSpacing));
 
-        if (spanDays > 90) {
-            const monthIntervals = [1, 2, 3, 6, 12, 24, 60];
+        if (spanDays > 120) {
+            const monthIntervals = spanDays > 365 * 3
+                ? [3, 6, 12, 24, 60]
+                : [1, 2, 3, 6, 12];
             const monthInterval = monthIntervals.find(interval => Math.ceil(monthSpan / interval) <= maxTimeTicks) || 60;
             const startMonthIndex = startDate.getUTCFullYear() * 12 + startDate.getUTCMonth();
             const endMonthIndex = endDate.getUTCFullYear() * 12 + endDate.getUTCMonth();
@@ -699,13 +717,17 @@ export class Chart {
                 addTick(date, isYear ? String(year) : monthNames[month], isYear);
             }
         } else {
-            const dayIntervals = [1, 2, 3, 7, 14, 30];
+            const dayIntervals = spanDays > 45 ? [7, 14, 30] : [1, 2, 3, 5, 7, 14];
             const dayInterval = dayIntervals.find(interval => Math.ceil(spanDays / interval) <= maxTimeTicks) || 30;
             const cursor = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate()));
             const dayRemainder = Math.floor((cursor - new Date(Date.UTC(1970, 0, 1))) / 86400000) % dayInterval;
             cursor.setUTCDate(cursor.getUTCDate() - dayRemainder);
             while (cursor <= endDate) {
-                addTick(new Date(cursor), `${cursor.getUTCMonth() + 1}/${cursor.getUTCDate()}`, false);
+                const monthKey = `${cursor.getUTCFullYear()}-${cursor.getUTCMonth()}`;
+                const isNewMonth = monthKey !== lastTickMonthKey;
+                const label = isNewMonth ? monthNames[cursor.getUTCMonth()] : formatDayLabel(cursor);
+                addTick(new Date(cursor), label, isNewMonth);
+                lastTickMonthKey = monthKey;
                 cursor.setUTCDate(cursor.getUTCDate() + dayInterval);
             }
         }
@@ -714,17 +736,26 @@ export class Chart {
     }
 
     getTimeTicks(startIndex, endIndex, candleWidth, spacing, chartWidth) {
-        const minSpacing = this.isCompactViewport() ? 98 : 76;
+        const minSpacing = this.isCompactViewport() ? 74 : 54;
         const filterOverlaps = (ticks) => {
-            let lastX = -Infinity;
-            return ticks
-                .sort((a, b) => a.x - b.x)
-                .filter((tick) => {
-                    if (tick.x < 8 || tick.x > chartWidth - 8) return false;
-                    if (tick.x - lastX < minSpacing) return false;
-                    lastX = tick.x;
-                    return true;
-                });
+            const visible = ticks
+                .filter(tick => tick.x >= 8 && tick.x <= chartWidth - 8)
+                .sort((a, b) => a.x - b.x);
+            const kept = [];
+            visible.forEach((tick) => {
+                const spacingScale = tick.emphasis ? 0.72 : 1;
+                const tooClose = kept.some(existing => Math.abs(existing.x - tick.x) < minSpacing * spacingScale);
+                if (!tooClose || tick.emphasis) {
+                    for (let i = kept.length - 1; i >= 0; i--) {
+                        if (tick.emphasis && !kept[i].emphasis && Math.abs(kept[i].x - tick.x) < minSpacing * spacingScale) {
+                            kept.splice(i, 1);
+                        }
+                    }
+                    kept.push(tick);
+                    kept.sort((a, b) => a.x - b.x);
+                }
+            });
+            return kept;
         };
 
         if (this.view.timeRange?.tickDates?.length) {
@@ -742,7 +773,7 @@ export class Chart {
     }
 
     getDrawablePriceTicks(priceTicks, chartHeight) {
-        const minSpacing = this.isCompactViewport() ? 44 : 30;
+        const minSpacing = this.isCompactViewport() ? 34 : 24;
         const sorted = [...priceTicks].sort((a, b) => a.y - b.y);
         const drawable = [];
         sorted.forEach((tick) => {
@@ -829,6 +860,11 @@ export class Chart {
 
         const priceTicks = this.getPriceTicks(chartHeight);
         const timeTicks = this.getTimeTicks(visibleStartIndex, visibleEndIndex, candleWidth, spacing, chartWidth);
+        const isDrawingTool = this.isDrawingLine || this.isDrawingInfiniteLine || this.isDrawingHorizontalLine || this.isDrawingVerticalLine || this.isDrawingFibonacci || this.isDrawingMeasure;
+
+        this.canvas.parentElement?.classList.toggle('drawing-mode', isDrawingTool);
+        this.canvas.parentElement?.classList.toggle('line-selected-mode', this.selectedLineIndex !== -1);
+        this.canvas.parentElement?.classList.toggle('line-dragging-mode', this.isMovingLine || !!this.activeLineHandle);
 
         renderGrid(this.ctx, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing, priceTicks, timeTicks);
         this.ctx.save();
@@ -839,7 +875,6 @@ export class Chart {
         renderIndicators(this.ctx, this.movingAverages, this.dataManager.data, this.view, width, height, candleWidth, spacing, this.options.scaleType);
         renderLines(this.ctx, this.lines, this.selectedLineIndex, this, width, height, candleWidth, spacing);
         renderDrawingFeedback(this.ctx, this, width, height, candleWidth, spacing);
-        const isDrawingTool = this.isDrawingLine || this.isDrawingInfiniteLine || this.isDrawingFibonacci || this.isDrawingMeasure;
         renderCrosshair(this.ctx, this.crosshair, this.showCrosshair, isDrawingTool, false, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
         this.ctx.restore();
 
