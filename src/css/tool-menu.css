@@ -21,7 +21,7 @@
     margin: 0;
     padding: 0;
     background: transparent;
-    color: transparent;
+    color: #131722;
     cursor: pointer;
     transition: background-color 120ms ease, color 120ms ease;
     display: flex;

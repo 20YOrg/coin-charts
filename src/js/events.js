@@ -487,6 +487,7 @@ export function initEvents(chart) {
         const swatch = document.getElementById(swatchId);
         if (!button || !menu || !input || !swatch) return;
         let lastColorPointerTime = 0;
+        let ignoreNextColorClick = false;
 
         function selectColor(color) {
             input.value = color;
@@ -521,7 +522,11 @@ export function initEvents(chart) {
                 selectColor(color);
             });
             item.addEventListener('click', (e) => {
-                if (performance.now() - lastColorPointerTime < 500) return;
+                if (performance.now() - lastColorPointerTime < 500) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
                 e.stopPropagation();
                 selectColor(color);
             });
@@ -530,10 +535,16 @@ export function initEvents(chart) {
 
         button.addEventListener('pointerup', (e) => {
             lastColorPointerTime = performance.now();
+            ignoreNextColorClick = true;
             toggleMenu(e);
         });
         button.addEventListener('click', (e) => {
-            if (e.pointerType || performance.now() - lastColorPointerTime < 500) return;
+            if (ignoreNextColorClick || e.pointerType || performance.now() - lastColorPointerTime < 500) {
+                ignoreNextColorClick = false;
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             toggleMenu(e);
         });
     }
@@ -543,6 +554,7 @@ export function initEvents(chart) {
         const menu = document.getElementById('line-style-menu');
         if (!button || !menu) return;
         let lastStylePointerTime = 0;
+        let ignoreNextStyleClick = false;
 
         function toggleStyleMenu(e) {
             e.preventDefault();
@@ -560,10 +572,16 @@ export function initEvents(chart) {
 
         button.addEventListener('pointerup', (e) => {
             lastStylePointerTime = performance.now();
+            ignoreNextStyleClick = true;
             toggleStyleMenu(e);
         });
         button.addEventListener('click', (e) => {
-            if (e.pointerType || performance.now() - lastStylePointerTime < 500) return;
+            if (ignoreNextStyleClick || e.pointerType || performance.now() - lastStylePointerTime < 500) {
+                ignoreNextStyleClick = false;
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             toggleStyleMenu(e);
         });
 
@@ -577,7 +595,11 @@ export function initEvents(chart) {
                 closeLineMenus();
             });
             item.addEventListener('click', (e) => {
-                if (performance.now() - lastStylePointerTime < 500) return;
+                if (performance.now() - lastStylePointerTime < 500) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
                 e.stopPropagation();
                 const style = item.dataset.style || 'solid';
                 mutateSelectedLine(chart, line => { line.style = style; });
@@ -591,6 +613,7 @@ export function initEvents(chart) {
         const menu = document.getElementById(menuId);
         if (!button || !menu) return;
         let lastChoicePointerTime = 0;
+        let ignoreNextChoiceClick = false;
 
         function toggleChoiceMenu(e) {
             e.preventDefault();
@@ -604,10 +627,16 @@ export function initEvents(chart) {
 
         button.addEventListener('pointerup', (e) => {
             lastChoicePointerTime = performance.now();
+            ignoreNextChoiceClick = true;
             toggleChoiceMenu(e);
         });
         button.addEventListener('click', (e) => {
-            if (e.pointerType || performance.now() - lastChoicePointerTime < 500) return;
+            if (ignoreNextChoiceClick || e.pointerType || performance.now() - lastChoicePointerTime < 500) {
+                ignoreNextChoiceClick = false;
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             toggleChoiceMenu(e);
         });
 
@@ -621,7 +650,11 @@ export function initEvents(chart) {
                 closeLineMenus();
             });
             item.addEventListener('click', (e) => {
-                if (performance.now() - lastChoicePointerTime < 500) return;
+                if (performance.now() - lastChoicePointerTime < 500) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
                 e.stopPropagation();
                 const value = Number.parseInt(item.dataset.value, 10);
                 if (Number.isFinite(value)) onSelect(value);
@@ -635,6 +668,7 @@ export function initEvents(chart) {
         const menu = document.getElementById('line-more-menu');
         if (!button || !menu) return;
         let lastMorePointerTime = 0;
+        let ignoreNextMoreClick = false;
 
         function toggleMoreMenu(e) {
             e.preventDefault();
@@ -648,10 +682,16 @@ export function initEvents(chart) {
 
         button.addEventListener('pointerup', (e) => {
             lastMorePointerTime = performance.now();
+            ignoreNextMoreClick = true;
             toggleMoreMenu(e);
         });
         button.addEventListener('click', (e) => {
-            if (e.pointerType || performance.now() - lastMorePointerTime < 500) return;
+            if (ignoreNextMoreClick || e.pointerType || performance.now() - lastMorePointerTime < 500) {
+                ignoreNextMoreClick = false;
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             toggleMoreMenu(e);
         });
     }
@@ -1677,7 +1717,10 @@ export function initEvents(chart) {
         }
     });
 
-    document.addEventListener('click', () => closeLineMenus());
+    document.addEventListener('click', (e) => {
+        if (e.target?.closest?.('#line-toolbar')) return;
+        closeLineMenus();
+    });
 
     const scaleSelect = document.getElementById('scale-select');
     if (scaleSelect) {
@@ -1727,6 +1770,45 @@ export function initEvents(chart) {
         onSelect: (value) => mutateSelectedLine(chart, line => { line.textSize = value || 12; }),
     });
     setupMoreMenu();
+
+    const lineToolbarElement = document.getElementById('line-toolbar');
+    let toolbarMenuPointerHandled = false;
+    const toolbarMenuButtons = {
+        'line-color-button': 'line-color-menu',
+        'line-style-button': 'line-style-menu',
+        'line-width-button': 'line-width-menu',
+        'line-text-color-button': 'line-text-color-menu',
+        'line-text-size-button': 'line-text-size-menu',
+        'line-more-button': 'line-more-menu',
+    };
+    function handleToolbarMenuToggle(e) {
+        const button = e.target?.closest?.(Object.keys(toolbarMenuButtons).map(id => `#${id}`).join(','));
+        if (!button) return;
+        if (e.type === 'click' && toolbarMenuPointerHandled) {
+            toolbarMenuPointerHandled = false;
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation?.();
+            return;
+        }
+
+        const menu = document.getElementById(toolbarMenuButtons[button.id]);
+        if (!menu) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        if (e.type === 'pointerup') toolbarMenuPointerHandled = true;
+
+        const willOpen = menu.hidden;
+        closeLineMenus(menu);
+        menu.hidden = !willOpen;
+        if (willOpen) positionToolbarMenu(menu, button);
+        syncLineToolbar(chart);
+    }
+    lineToolbarElement?.addEventListener('pointerup', handleToolbarMenuToggle, true);
+    lineToolbarElement?.addEventListener('click', handleToolbarMenuToggle, true);
+
     function setupMobileCopyPasteButton(buttonId, action) {
         const button = document.getElementById(buttonId);
         if (!button) return;
@@ -1740,7 +1822,11 @@ export function initEvents(chart) {
             action();
         });
         button.addEventListener('click', (e) => {
-            if (button.disabled || performance.now() - lastPointerTime < 500) return;
+            if (button.disabled || performance.now() - lastPointerTime < 500) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             e.stopPropagation();
             closeLineMenus();
             action();
@@ -1759,7 +1845,11 @@ export function initEvents(chart) {
             action();
         });
         button.addEventListener('click', (e) => {
-            if (button.disabled || performance.now() - lastPointerTime < 500) return;
+            if (button.disabled || performance.now() - lastPointerTime < 500) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             e.stopPropagation();
             closeLineMenus();
             action();

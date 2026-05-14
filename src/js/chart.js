@@ -23,8 +23,14 @@ function sanitizeDrawingPoint(point) {
 
 function sanitizeDrawing(line) {
     if (!line || typeof line !== 'object') return null;
+    const knownType = ['finite', 'infinite', 'horizontal', 'vertical', 'fibonacci', 'measure'].includes(line.type)
+        ? line.type
+        : null;
+    const inferredType = knownType
+        || (isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end) ? 'finite' : null)
+        || (isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2) ? 'infinite' : null);
     const base = {
-        type: line.type,
+        type: inferredType,
         scaleType: line.scaleType === 'logarithmic' ? 'logarithmic' : 'linear',
         color: typeof line.color === 'string' ? line.color : '#2962ff',
         width: Number.isFinite(line.width) ? line.width : 2,
@@ -38,15 +44,15 @@ function sanitizeDrawing(line) {
         locked: Boolean(line.locked),
     };
 
-    if (line.type === 'finite' && isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end)) {
+    if (inferredType === 'finite' && isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end)) {
         return { ...base, start: sanitizeDrawingPoint(line.start), end: sanitizeDrawingPoint(line.end) };
     }
 
-    if ((line.type === 'infinite' || line.type === 'fibonacci' || line.type === 'measure') && isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2)) {
+    if ((inferredType === 'infinite' || inferredType === 'fibonacci' || inferredType === 'measure') && isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2)) {
         return { ...base, point1: sanitizeDrawingPoint(line.point1), point2: sanitizeDrawingPoint(line.point2) };
     }
 
-    if ((line.type === 'horizontal' || line.type === 'vertical') && isValidDrawingPoint(line.point1)) {
+    if ((inferredType === 'horizontal' || inferredType === 'vertical') && isValidDrawingPoint(line.point1)) {
         return { ...base, point1: sanitizeDrawingPoint(line.point1) };
     }
 
@@ -891,7 +897,7 @@ export class Chart {
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         timeTicks.forEach(({ x, label, emphasis }) => {
-            const fontSize = this.isCompactViewport() ? 12 : 13;
+            const fontSize = this.isCompactViewport() ? 11 : 12;
             this.ctx.font = `${emphasis ? '600' : '400'} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
             this.ctx.fillText(label, x, timeAxisCenterY);
         });

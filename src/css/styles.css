@@ -337,3 +337,26 @@ canvas {
         font-size: 14px;
     }
 }
+
+@media (max-width: 390px) {
+    #controls {
+        gap: 3px;
+        padding: 0 5px;
+    }
+
+    .symbol-block {
+        padding: 0 3px;
+    }
+
+    .control-title {
+        display: none;
+    }
+
+    .control-chip {
+        padding-left: 4px;
+    }
+
+    #custom-interval-unit {
+        width: 68px;
+    }
+}

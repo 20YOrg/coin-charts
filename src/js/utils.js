@@ -1,5 +1,5 @@
 export const AXIS_MARGIN = 74;
-export const TIME_AXIS_HEIGHT = 34;
+export const TIME_AXIS_HEIGHT = 24;
 export const LABEL_MARGIN = 30;
 export const CANDLE_SPACING = 2;
 export const PRICE_STEPS = 5;
@@ -100,13 +100,16 @@ export function getDrawingPointX(chart, point, candleWidth = null, spacing = nul
 
     const date = parseDateUTC(point.time);
     const index = chart.getIndexForDate(date);
-    if (!Number.isFinite(index) || index < 0) return point.x ?? 0;
+    const resolvedIndex = Number.isFinite(index) && index >= 0
+        ? index
+        : chart.getNearestIndex?.(point.time);
+    if (!Number.isFinite(resolvedIndex) || resolvedIndex < 0) return point.x ?? 0;
 
     const resolvedCandleWidth = candleWidth ?? chart.getCandleWidth?.() ?? 0;
     const resolvedSpacing = spacing ?? chart.getBarSpacing?.() ?? CANDLE_SPACING;
     const slotWidth = resolvedCandleWidth + resolvedSpacing;
     const centerOffset = slotWidth > 0 ? resolvedCandleWidth / 2 / slotWidth : 0;
-    return index + centerOffset;
+    return resolvedIndex + centerOffset;
 }
 
 export function getLinePoints(chart, line, width, height, candleWidth, spacing, numPoints) {
