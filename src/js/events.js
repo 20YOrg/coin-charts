@@ -1,5 +1,5 @@
 import { openMAModal } from './modal.js';
-import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toISODate, AXIS_MARGIN, TIME_AXIS_HEIGHT } from './utils.js';
+import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toISODate, AXIS_MARGIN, TIME_AXIS_HEIGHT, normalizeDrawing } from './utils.js';
 
 function normalizeWheelDelta(delta) {
     return Math.sign(delta) * Math.min(160, Math.abs(delta));
@@ -147,7 +147,7 @@ function selectedLine(chart) {
 }
 
 function cloneDrawingList(lines) {
-    return lines.map(cloneDrawing);
+    return lines.map(cloneDrawing).filter(Boolean);
 }
 
 function captureDrawingState(chart) {
@@ -178,7 +178,10 @@ function undoDrawingChange(chart) {
     const previous = chart.drawingHistory?.pop();
     if (!previous) return false;
     chart.lines.length = 0;
-    previous.lines.forEach(line => chart.lines.push(cloneDrawing(line)));
+    previous.lines.forEach((line) => {
+        const drawing = cloneDrawing(line);
+        if (drawing) chart.lines.push(drawing);
+    });
     chart.selectedLineIndex = Math.min(previous.selectedLineIndex, chart.lines.length - 1);
     chart.hoveredLineIndex = -1;
     chart.activeLineHandle = null;
@@ -262,7 +265,12 @@ function deleteSelectedLine(chart) {
 }
 
 function cloneDrawing(line) {
-    return JSON.parse(JSON.stringify(line));
+    if (!line) return null;
+    try {
+        return normalizeDrawing(JSON.parse(JSON.stringify(line)));
+    } catch {
+        return null;
+    }
 }
 
 function isEditableTarget(target) {
@@ -832,9 +840,11 @@ export function initEvents(chart) {
         if (line.type === 'finite') {
             offsetDrawingPoint(line.start, chartHeight);
             offsetDrawingPoint(line.end, chartHeight);
-        } else {
+        } else if (line.point1 && line.point2) {
             offsetDrawingPoint(line.point1, chartHeight);
             offsetDrawingPoint(line.point2, chartHeight);
+        } else if (line.point1) {
+            offsetDrawingPoint(line.point1, chartHeight);
         }
     }
 
@@ -842,6 +852,11 @@ export function initEvents(chart) {
         if (!chart.copiedDrawing) return;
         const before = captureDrawingState(chart);
         const pastedLine = cloneDrawing(chart.copiedDrawing);
+        if (!pastedLine) {
+            chart.copiedDrawing = null;
+            syncLineToolbar(chart);
+            return;
+        }
         offsetDrawingObject(pastedLine, canvas.offsetHeight - TIME_AXIS_HEIGHT);
         lines.push(pastedLine);
         pushDrawingHistory(chart, before);
@@ -856,7 +871,9 @@ export function initEvents(chart) {
 
     function copySelectedDrawing() {
         if (chart.selectedLineIndex === -1 || !lines[chart.selectedLineIndex]) return;
-        chart.copiedDrawing = cloneDrawing(lines[chart.selectedLineIndex]);
+        const drawing = cloneDrawing(lines[chart.selectedLineIndex]);
+        if (!drawing) return;
+        chart.copiedDrawing = drawing;
         syncLineToolbar(chart);
     }
 

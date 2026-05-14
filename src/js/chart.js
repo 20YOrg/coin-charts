@@ -2,62 +2,9 @@ import { DataManager } from './data-manager.js';
 import { initEvents } from './events.js';
 import { renderGrid, renderCandles, renderCrosshair, renderCrosshairAxisLabels, renderDrawingFeedback, renderLines } from './rendering.js';
 import { renderIndicators } from './indicators.js';
-import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, addMonthsClamped, generateMonthTicks, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING } from './utils.js';
+import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, addMonthsClamped, generateMonthTicks, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING, normalizeDrawing } from './utils.js';
 
 const DRAWINGS_STORAGE_KEY = 'coin-charts:btc-usd:drawings:v1';
-
-function isValidDrawingPoint(point) {
-    return point
-        && Number.isFinite(point.x)
-        && Number.isFinite(point.y);
-}
-
-function sanitizeDrawingPoint(point) {
-    if (!isValidDrawingPoint(point)) return null;
-    return {
-        x: point.x,
-        y: point.y,
-        ...(typeof point.time === 'string' ? { time: point.time } : {}),
-    };
-}
-
-function sanitizeDrawing(line) {
-    if (!line || typeof line !== 'object') return null;
-    const knownType = ['finite', 'infinite', 'horizontal', 'vertical', 'fibonacci', 'measure'].includes(line.type)
-        ? line.type
-        : null;
-    const inferredType = knownType
-        || (isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end) ? 'finite' : null)
-        || (isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2) ? 'infinite' : null);
-    const base = {
-        type: inferredType,
-        scaleType: line.scaleType === 'logarithmic' ? 'logarithmic' : 'linear',
-        color: typeof line.color === 'string' ? line.color : '#2962ff',
-        width: Number.isFinite(line.width) ? line.width : 2,
-        style: ['solid', 'dashed', 'dotted'].includes(line.style) ? line.style : 'solid',
-        text: typeof line.text === 'string' ? line.text : '',
-        textColor: typeof line.textColor === 'string' ? line.textColor : '#131722',
-        textBold: Boolean(line.textBold),
-        textSize: Number.isFinite(line.textSize) ? Math.min(32, Math.max(8, line.textSize)) : 12,
-        textOffsetX: Number.isFinite(line.textOffsetX) ? Math.max(-240, Math.min(240, line.textOffsetX)) : 0,
-        textOffsetY: Number.isFinite(line.textOffsetY) ? Math.max(-180, Math.min(180, line.textOffsetY)) : 0,
-        locked: Boolean(line.locked),
-    };
-
-    if (inferredType === 'finite' && isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end)) {
-        return { ...base, start: sanitizeDrawingPoint(line.start), end: sanitizeDrawingPoint(line.end) };
-    }
-
-    if ((inferredType === 'infinite' || inferredType === 'fibonacci' || inferredType === 'measure') && isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2)) {
-        return { ...base, point1: sanitizeDrawingPoint(line.point1), point2: sanitizeDrawingPoint(line.point2) };
-    }
-
-    if ((inferredType === 'horizontal' || inferredType === 'vertical') && isValidDrawingPoint(line.point1)) {
-        return { ...base, point1: sanitizeDrawingPoint(line.point1) };
-    }
-
-    return null;
-}
 
 export class Chart {
     constructor(canvas, options = {}) {
@@ -141,7 +88,7 @@ export class Chart {
                 this.drawingsReady = true;
                 return;
             }
-            this.lines = saved.map(sanitizeDrawing).filter(Boolean);
+            this.lines = saved.map(normalizeDrawing).filter(Boolean);
             this.lines.forEach(line => this.ensureDrawingTimes(line));
             this.selectedLineIndex = -1;
             this.hoveredLineIndex = -1;
@@ -177,7 +124,7 @@ export class Chart {
         if (!this.drawingsReady) return;
         try {
             this.lines.forEach(line => this.ensureDrawingTimes(line));
-            const drawings = this.lines.map(sanitizeDrawing).filter(Boolean);
+            const drawings = this.lines.map(normalizeDrawing).filter(Boolean);
             localStorage.setItem(DRAWINGS_STORAGE_KEY, JSON.stringify(drawings));
         } catch (error) {
             console.warn('Unable to save drawings', error);

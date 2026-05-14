@@ -3,6 +3,7 @@ export const TIME_AXIS_HEIGHT = 24;
 export const LABEL_MARGIN = 30;
 export const CANDLE_SPACING = 2;
 export const PRICE_STEPS = 5;
+const DRAWING_TYPES = ['finite', 'infinite', 'horizontal', 'vertical', 'fibonacci', 'measure'];
 
 export function parseDateUTC(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return null;
@@ -57,6 +58,59 @@ export function distanceToLineSegment(px, py, x1, y1, x2, y2) {
     const projX = x1 + t * dx;
     const projY = y1 + t * dy;
     return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+}
+
+export function isValidDrawingPoint(point) {
+    return point
+        && Number.isFinite(point.x)
+        && Number.isFinite(point.y);
+}
+
+export function sanitizeDrawingPoint(point) {
+    if (!isValidDrawingPoint(point)) return null;
+    return {
+        x: point.x,
+        y: point.y,
+        ...(typeof point.time === 'string' ? { time: point.time } : {}),
+    };
+}
+
+export function normalizeDrawing(line) {
+    if (!line || typeof line !== 'object') return null;
+    const knownType = DRAWING_TYPES.includes(line.type) ? line.type : null;
+    const inferredType = knownType
+        || (isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end) ? 'finite' : null)
+        || (isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2) ? 'infinite' : null)
+        || (isValidDrawingPoint(line.point1) ? 'horizontal' : null);
+
+    const base = {
+        type: inferredType,
+        scaleType: line.scaleType === 'logarithmic' ? 'logarithmic' : 'linear',
+        color: typeof line.color === 'string' ? line.color : '#2962ff',
+        width: Number.isFinite(line.width) ? line.width : 2,
+        style: ['solid', 'dashed', 'dotted'].includes(line.style) ? line.style : 'solid',
+        text: typeof line.text === 'string' ? line.text : '',
+        textColor: typeof line.textColor === 'string' ? line.textColor : '#131722',
+        textBold: Boolean(line.textBold),
+        textSize: Number.isFinite(line.textSize) ? Math.min(32, Math.max(8, line.textSize)) : 12,
+        textOffsetX: Number.isFinite(line.textOffsetX) ? Math.max(-240, Math.min(240, line.textOffsetX)) : 0,
+        textOffsetY: Number.isFinite(line.textOffsetY) ? Math.max(-180, Math.min(180, line.textOffsetY)) : 0,
+        locked: Boolean(line.locked),
+    };
+
+    if (inferredType === 'finite' && isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end)) {
+        return { ...base, start: sanitizeDrawingPoint(line.start), end: sanitizeDrawingPoint(line.end) };
+    }
+
+    if ((inferredType === 'infinite' || inferredType === 'fibonacci' || inferredType === 'measure') && isValidDrawingPoint(line.point1) && isValidDrawingPoint(line.point2)) {
+        return { ...base, point1: sanitizeDrawingPoint(line.point1), point2: sanitizeDrawingPoint(line.point2) };
+    }
+
+    if ((inferredType === 'horizontal' || inferredType === 'vertical') && isValidDrawingPoint(line.point1)) {
+        return { ...base, point1: sanitizeDrawingPoint(line.point1) };
+    }
+
+    return null;
 }
 
 export function getLineParameters(line, scaleType = 'linear') {
