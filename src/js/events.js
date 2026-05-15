@@ -215,7 +215,13 @@ function syncLineToolbar(chart) {
     const toolbar = document.getElementById('line-toolbar');
     if (!toolbar) return;
     const line = selectedLine(chart);
-    toolbar.hidden = !line;
+    const canPaste = !!chart.copiedDrawing;
+    toolbar.hidden = !line && !canPaste;
+    toolbar.classList.toggle('paste-only-mode', !line && canPaste);
+    const pasteButton = document.getElementById('line-paste');
+    if (pasteButton) pasteButton.disabled = !canPaste;
+    const morePasteButton = document.getElementById('line-more-paste');
+    if (morePasteButton) morePasteButton.disabled = !canPaste;
     if (!line) return;
 
     document.getElementById('line-color').value = line.color || '#2962ff';
@@ -237,10 +243,6 @@ function syncLineToolbar(chart) {
     document.getElementById('line-text-bold')?.classList.toggle('active', !!line.textBold);
     document.getElementById('line-lock')?.classList.toggle('active', !!line.locked);
     document.getElementById('line-more-lock')?.classList.toggle('active', !!line.locked);
-    const pasteButton = document.getElementById('line-paste');
-    if (pasteButton) pasteButton.disabled = !chart.copiedDrawing;
-    const morePasteButton = document.getElementById('line-more-paste');
-    if (morePasteButton) morePasteButton.disabled = !chart.copiedDrawing;
 }
 
 function mutateSelectedLine(chart, updater) {
@@ -365,6 +367,20 @@ export function initEvents(chart) {
     const drawingColors = ['#2962ff', '#089981', '#f23645', '#ff9800', '#ab47bc', '#131722', '#787b86', '#26c6da', '#00c853', '#ff5252', '#ffffff', '#000000'];
     updateUndoButton(chart);
 
+    function isCompactViewport() {
+        return window.matchMedia?.('(max-width: 720px)')?.matches;
+    }
+
+    function isLineTextEditing() {
+        return lineTextEditor && !lineTextEditor.hidden;
+    }
+
+    function updateAppHeight() {
+        document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+    }
+
+    updateAppHeight();
+
     function closeLineTextEditor(commit = true) {
         if (!lineTextEditor || lineTextEditor.hidden) return;
         const lineIndex = Number.parseInt(lineTextEditor.dataset.lineIndex || '-1', 10);
@@ -382,11 +398,27 @@ export function initEvents(chart) {
             clearInterval(chart.lineTextCaretTimer);
             chart.lineTextCaretTimer = null;
         }
+        lineTextEditor.classList.remove('mobile-line-text-editor');
+        lineTextEditor.style.position = '';
+        lineTextEditor.style.left = '';
+        lineTextEditor.style.right = '';
+        lineTextEditor.style.top = '';
+        lineTextEditor.style.bottom = '';
+        lineTextEditor.style.width = '';
+        lineTextEditor.style.height = '';
+        lineTextEditor.style.padding = '';
+        lineTextEditor.style.background = '';
+        lineTextEditor.style.border = '';
+        lineTextEditor.style.borderRadius = '';
+        lineTextEditor.style.boxShadow = '';
+        lineTextEditor.style.color = '';
+        lineTextEditor.style.caretColor = '';
+        lineTextEditor.style.opacity = '';
         chart.editingLineTextIndex = -1;
         chart.lineTextEditSnapshot = null;
         delete lineTextEditor.dataset.lineIndex;
         syncLineToolbar(chart);
-        chart.render();
+        chart.resize();
     }
 
     function openLineTextEditor(lineIndex) {
@@ -402,7 +434,7 @@ export function initEvents(chart) {
         syncLineToolbar(chart);
 
         const textSize = lines[lineIndex].textSize || 12;
-        const isCompactTouch = window.matchMedia?.('(max-width: 720px), (pointer: coarse)')?.matches;
+        const isCompactTouch = isCompactViewport();
         const editorFontSize = isCompactTouch ? Math.max(16, textSize) : textSize;
         const editorWidth = Math.max(36, Math.min(240, placement.width + 22));
         const editorHeight = Math.max(textSize, editorFontSize) + 8;
@@ -411,19 +443,33 @@ export function initEvents(chart) {
         lineTextEditor.dataset.lineIndex = String(lineIndex);
         lineTextEditor.value = lines[lineIndex].text || '';
         lineTextEditor.placeholder = '+ Add text';
-        lineTextEditor.style.width = '1px';
-        lineTextEditor.style.left = `${Math.max(4, Math.min(width - AXIS_MARGIN - 8, placement.x))}px`;
-        lineTextEditor.style.top = `${Math.max(4, Math.min(chartHeight - 24, placement.y - 18))}px`;
+        lineTextEditor.classList.toggle('mobile-line-text-editor', isCompactTouch);
+        lineTextEditor.style.position = isCompactTouch ? 'fixed' : '';
+        lineTextEditor.style.left = isCompactTouch ? '0' : `${Math.max(4, Math.min(width - AXIS_MARGIN - 8, placement.x))}px`;
+        lineTextEditor.style.right = isCompactTouch ? '' : '';
+        lineTextEditor.style.top = isCompactTouch ? '0' : `${Math.max(4, Math.min(chartHeight - 24, placement.y - 18))}px`;
+        lineTextEditor.style.bottom = '';
+        lineTextEditor.style.width = isCompactTouch ? '1px' : '1px';
         lineTextEditor.style.color = 'transparent';
         lineTextEditor.style.caretColor = 'transparent';
         lineTextEditor.style.fontWeight = lines[lineIndex].textBold ? '700' : '400';
         lineTextEditor.style.fontSize = `${editorFontSize}px`;
-        lineTextEditor.style.height = '20px';
+        lineTextEditor.style.height = isCompactTouch ? '1px' : '20px';
+        lineTextEditor.style.padding = '';
+        lineTextEditor.style.background = '';
+        lineTextEditor.style.border = '';
+        lineTextEditor.style.borderRadius = '';
+        lineTextEditor.style.boxShadow = '';
+        lineTextEditor.style.opacity = isCompactTouch ? '0.01' : '';
         lineTextEditor.style.lineHeight = `${Math.max(18, editorFontSize)}px`;
         lineTextEditor.style.transform = 'none';
         lineTextEditor.style.transformOrigin = 'left top';
         lineTextEditor.hidden = false;
-        lineTextEditor.focus();
+        const scrollX = window.scrollX;
+        const scrollY = window.scrollY;
+        lineTextEditor.focus({ preventScroll: true });
+        window.scrollTo(scrollX, scrollY);
+        requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
         const caretIndex = lineTextEditor.value.length;
         lineTextEditor.setSelectionRange(caretIndex, caretIndex);
         if (chart.lineTextCaretTimer) clearInterval(chart.lineTextCaretTimer);
@@ -877,6 +923,14 @@ export function initEvents(chart) {
         syncLineToolbar(chart);
     }
 
+    function cutSelectedDrawing() {
+        if (chart.selectedLineIndex === -1 || !lines[chart.selectedLineIndex]) return;
+        const drawing = cloneDrawing(lines[chart.selectedLineIndex]);
+        if (!drawing) return;
+        chart.copiedDrawing = drawing;
+        deleteSelectedLine(chart);
+    }
+
     function getTouchPoint(touch, rect) {
         return {
             x: touch.clientX - rect.left,
@@ -904,7 +958,34 @@ export function initEvents(chart) {
             clearTimeout(chart.touchHoldTimer);
             chart.touchHoldTimer = null;
         }
+        if (chart.touchCrosshairTimer) {
+            clearTimeout(chart.touchCrosshairTimer);
+            chart.touchCrosshairTimer = null;
+        }
         chart.touchHoldTarget = null;
+    }
+
+    function updateTouchCrosshair(point, chartHeight) {
+        const candleWidth = chart.getCandleWidth();
+        const spacing = chart.getBarSpacing();
+        const slotWidth = candleWidth + spacing;
+        const candleIndex = Math.max(0, Math.round((point.x - view.offsetX - candleWidth / 2) / slotWidth));
+        const snappedX = candleIndex * slotWidth + view.offsetX + candleWidth / 2;
+        chart.crosshair = { x: snappedX, y: point.y, candleIndex };
+    }
+
+    function scheduleTouchCrosshairHold(point, chartHeight) {
+        chart.touchCrosshairTimer = setTimeout(() => {
+            chart.touchCrosshairTimer = null;
+            chart.touchMode = 'crosshair';
+            chart.touchMoved = true;
+            chart.touchCrosshairActive = true;
+            chart.touchCrosshairPreviousVisibility = chart.showCrosshair;
+            chart.showCrosshair = true;
+            updateTouchCrosshair(point, chartHeight);
+            navigator.vibrate?.(8);
+            chart.requestRender();
+        }, 320);
     }
 
     function moveActiveDrawingHandle(mouseX, mouseY, chartHeight) {
@@ -942,8 +1023,8 @@ export function initEvents(chart) {
             line.start.y = options.scaleType === 'logarithmic' ? line.start.y * logMoveRatio : line.start.y + dy;
             line.end.x = getDrawingPointX(chart, line.end) + dx;
             line.end.y = options.scaleType === 'logarithmic' ? line.end.y * logMoveRatio : line.end.y + dy;
-            updatePointTimeFromX(line.start);
-            updatePointTimeFromX(line.end);
+            delete line.start.time;
+            delete line.end.time;
             markDrawingDragChanged(chart);
         } else if (line.type === 'horizontal' && line.point1) {
             line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
@@ -957,13 +1038,8 @@ export function initEvents(chart) {
             line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
             line.point2.x = getDrawingPointX(chart, line.point2) + dx;
             line.point2.y = options.scaleType === 'logarithmic' ? line.point2.y * logMoveRatio : line.point2.y + dy;
-            if (line.type === 'measure') {
-                delete line.point1.time;
-                delete line.point2.time;
-            } else {
-                updatePointTimeFromX(line.point1);
-                updatePointTimeFromX(line.point2);
-            }
+            delete line.point1.time;
+            delete line.point2.time;
             markDrawingDragChanged(chart);
         }
 
@@ -1053,7 +1129,7 @@ export function initEvents(chart) {
             chart.touchMode = 'pinch';
             chart.lastTouchDistance = getTouchDistance(e.touches);
             chart.lastTouchCenter = getTouchCenter(e.touches, rect);
-            chart.crosshair = null;
+            if (!chart.touchCrosshairActive) chart.crosshair = null;
             return;
         }
 
@@ -1067,13 +1143,13 @@ export function initEvents(chart) {
         if (point.x > width - AXIS_MARGIN && point.y <= height) {
             chart.touchMode = 'price-axis';
             chart.view.offsetY = 0;
-            chart.crosshair = null;
+            if (!chart.touchCrosshairActive) chart.crosshair = null;
             return;
         }
 
         if (point.y > height) {
             chart.touchMode = 'time-axis';
-            chart.crosshair = null;
+            if (!chart.touchCrosshairActive) chart.crosshair = null;
             return;
         }
 
@@ -1092,6 +1168,8 @@ export function initEvents(chart) {
                 const closestLineIndex = findDrawingAt(point.x, point.y, width, height, getLineHitRadius(chart) + 10);
                 if (closestLineIndex !== -1) {
                     scheduleTouchDrawingHold({ kind: 'line', lineIndex: closestLineIndex });
+                } else {
+                    scheduleTouchCrosshairHold(point, height);
                 }
             }
         }
@@ -1131,6 +1209,13 @@ export function initEvents(chart) {
             }
             clearTouchHold();
         }
+        if (chart.touchCrosshairTimer) {
+            if (Math.hypot(point.x - chart.touchStartX, point.y - chart.touchStartY) > 9) {
+                clearTouchHold();
+            } else {
+                return;
+            }
+        }
 
         if (chart.touchMode === 'line-drag') {
             if (chart.activeLineHandle && chart.selectedLineIndex !== -1) {
@@ -1140,6 +1225,14 @@ export function initEvents(chart) {
                 chart.requestRender();
             } else if (chart.isMovingLine && chart.selectedLineIndex !== -1) {
                 moveSelectedDrawing(point.x, point.y, chartHeight);
+                chart.requestRender();
+            }
+            return;
+        }
+
+        if (chart.touchMode === 'crosshair') {
+            if (point.x <= width - AXIS_MARGIN && point.y <= chartHeight) {
+                updateTouchCrosshair(point, chartHeight);
                 chart.requestRender();
             }
             return;
@@ -1261,6 +1354,20 @@ export function initEvents(chart) {
             if (chart.touchMoved) {
                 startPanInertia(chart, chartHeight);
             } else {
+                if (chart.touchCrosshairActive) {
+                    chart.crosshair = null;
+                    chart.touchCrosshairActive = false;
+                    if (typeof chart.touchCrosshairPreviousVisibility === 'boolean') {
+                        chart.showCrosshair = chart.touchCrosshairPreviousVisibility;
+                        chart.touchCrosshairPreviousVisibility = null;
+                    }
+                    chart.render();
+                    chart.touchMode = null;
+                    chart.lastTouchDistance = 0;
+                    chart.lastTouchCenter = null;
+                    chart.touchMoved = false;
+                    return;
+                }
                 const width = canvas.offsetWidth;
                 const textHit = findLineTextAt(chart, chart.lastMouseX, chart.lastMouseY, width, chartHeight);
                 if (textHit) {
@@ -1289,6 +1396,9 @@ export function initEvents(chart) {
 
     canvas.addEventListener('touchcancel', () => {
         clearTouchHold();
+        if (chart.touchMode === 'crosshair') {
+            chart.render();
+        }
         if (chart.touchMode === 'line-drag') {
             finalizeSelectedDrawingTimes();
             finishDrawingDragHistory(chart);
@@ -1723,6 +1833,11 @@ export function initEvents(chart) {
                 e.preventDefault();
                 return;
             }
+            if (key === 'x' && chart.selectedLineIndex !== -1) {
+                cutSelectedDrawing();
+                e.preventDefault();
+                return;
+            }
             if (key === 'v' && chart.copiedDrawing) {
                 pasteCopiedDrawing();
                 e.preventDefault();
@@ -1875,6 +1990,7 @@ export function initEvents(chart) {
     setupMobileCopyPasteButton('line-copy', copySelectedDrawing);
     setupMobileCopyPasteButton('line-paste', pasteCopiedDrawing);
     setupMobileCopyPasteButton('line-more-copy', copySelectedDrawing);
+    setupMobileCopyPasteButton('line-more-cut', cutSelectedDrawing);
     setupMobileCopyPasteButton('line-more-paste', pasteCopiedDrawing);
     setupMobileCopyPasteButton('line-more-lock', () => {
         mutateSelectedLine(chart, line => { line.locked = !line.locked; });
@@ -2171,5 +2287,10 @@ export function initEvents(chart) {
         });
     }
 
-    window.addEventListener('resize', () => chart.resize());
+    window.addEventListener('resize', () => {
+        const isCompactTouch = isCompactViewport();
+        if (isCompactTouch && isLineTextEditing()) return;
+        updateAppHeight();
+        chart.resize();
+    });
 }

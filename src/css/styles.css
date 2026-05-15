@@ -16,7 +16,7 @@
 
 body {
     margin: 0;
-    height: 100vh;
+    height: var(--app-height, 100vh);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -238,6 +238,7 @@ canvas {
     color: var(--tv-text);
     cursor: pointer;
     font-size: 15px;
+    font-weight: 400;
     line-height: 1;
     padding: 0 10px;
 }
@@ -247,8 +248,8 @@ canvas {
 }
 
 .range-button.active {
-    background: var(--tv-active);
-    color: var(--tv-blue);
+    background: transparent;
+    color: var(--tv-text);
     font-weight: 600;
 }
 
@@ -261,10 +262,6 @@ canvas {
 }
 
 @media (max-width: 720px) {
-    body {
-        height: 100dvh;
-    }
-
     #controls {
         flex: 0 0 42px;
         height: 42px;

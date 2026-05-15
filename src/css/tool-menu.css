@@ -114,6 +114,10 @@
     display: none;
 }
 
+#line-toolbar.paste-only-mode > :not(.more-control) {
+    display: none !important;
+}
+
 #line-toolbar button {
     width: 30px;
     height: 28px;

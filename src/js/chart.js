@@ -768,10 +768,68 @@ export class Chart {
         this.ctx.stroke();
 
         this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        this.ctx.font = '400 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
         this.ctx.fillText(label, chartWidth + 8, markerY + labelHeight / 2);
+        this.ctx.restore();
+    }
+
+    getVisibleHighLowMarkers(startIndex, endIndex, chartHeight, chartWidth, candleWidth, spacing) {
+        let highMarker = null;
+        let lowMarker = null;
+        const slotWidth = candleWidth + spacing;
+
+        for (let index = startIndex; index < endIndex; index++) {
+            const candle = this.dataManager.data[index];
+            if (!candle) continue;
+
+            if (!highMarker || candle.high > highMarker.price) {
+                highMarker = { index, price: candle.high };
+            }
+            if (!lowMarker || candle.low < lowMarker.price) {
+                lowMarker = { index, price: candle.low };
+            }
+        }
+
+        return [highMarker, lowMarker].filter(Boolean).map((marker) => ({
+            ...marker,
+            x: marker.index * slotWidth + this.view.offsetX + candleWidth / 2,
+            y: priceToY(marker.price, chartHeight, this.view, this.options.scaleType),
+            label: this.formatPriceLabel(marker.price),
+        })).filter(({ x, y }) => x >= 0 && x <= chartWidth && y >= 0 && y <= chartHeight);
+    }
+
+    renderHighLowMarkers(startIndex, endIndex, chartHeight, chartWidth, candleWidth, spacing) {
+        const markers = this.getVisibleHighLowMarkers(startIndex, endIndex, chartHeight, chartWidth, candleWidth, spacing);
+        if (!markers.length) return;
+
+        this.ctx.save();
+        this.ctx.strokeStyle = this.options.axisColor;
+        this.ctx.fillStyle = this.options.axisColor;
+        this.ctx.lineWidth = 1.5;
+        this.ctx.font = '400 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        this.ctx.textBaseline = 'middle';
+
+        markers.forEach(({ x, y, label }) => {
+            const labelWidth = this.ctx.measureText(label).width;
+            const gap = 6;
+            const lineLength = 34;
+            const canDrawLeft = x - lineLength - gap - labelWidth >= 6;
+            const labelOnLeft = canDrawLeft || x + lineLength + gap + labelWidth > chartWidth - 6;
+            const lineStartX = labelOnLeft ? x - lineLength : x;
+            const lineEndX = labelOnLeft ? x : x + lineLength;
+            const labelX = labelOnLeft ? lineStartX - gap : lineEndX + gap;
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(Math.round(lineStartX) + 0.5, Math.round(y) + 0.5);
+            this.ctx.lineTo(Math.round(lineEndX) + 0.5, Math.round(y) + 0.5);
+            this.ctx.stroke();
+
+            this.ctx.textAlign = labelOnLeft ? 'right' : 'left';
+            this.ctx.fillText(label, labelX, y);
+        });
+
         this.ctx.restore();
     }
 
@@ -826,13 +884,14 @@ export class Chart {
         this.ctx.clip();
         renderCandles(this.ctx, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
         renderIndicators(this.ctx, this.movingAverages, this.dataManager.data, this.view, width, height, candleWidth, spacing, this.options.scaleType);
+        this.renderHighLowMarkers(startIndex, endIndex, chartHeight, chartWidth, candleWidth, spacing);
         renderLines(this.ctx, this.lines, this.selectedLineIndex, this, width, height, candleWidth, spacing);
         renderDrawingFeedback(this.ctx, this, width, height, candleWidth, spacing);
         renderCrosshair(this.ctx, this.crosshair, this.showCrosshair, isDrawingTool, false, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
         this.ctx.restore();
 
         this.ctx.fillStyle = this.options.axisColor;
-        this.ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        this.ctx.font = '400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
 
@@ -845,7 +904,7 @@ export class Chart {
         this.ctx.textBaseline = 'middle';
         timeTicks.forEach(({ x, label, emphasis }) => {
             const fontSize = this.isCompactViewport() ? 11 : 12;
-            this.ctx.font = `${emphasis ? '600' : '400'} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+            this.ctx.font = `${emphasis ? '700' : '400'} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
             this.ctx.fillText(label, x, timeAxisCenterY);
         });
 
