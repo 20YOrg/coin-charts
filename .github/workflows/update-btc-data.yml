@@ -24,9 +24,11 @@ jobs:
         run: npm run update:data
 
       - name: Commit updated data
+        id: commit-data
         run: |
           if git diff --quiet -- src/data/btc-usd.js; then
             echo "BTC-USD data is already up to date."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -35,3 +37,8 @@ jobs:
           git add src/data/btc-usd.js
           git commit -m "Update BTC-USD data"
           git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Coolify redeploy
+        if: steps.commit-data.outputs.changed == 'true'
+        run: curl -fsS "${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}"
