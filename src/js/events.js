@@ -12,7 +12,7 @@ function getLineHitRadius(chart) {
 function getLineHandleRadius(chart) {
     const isTouch = window.matchMedia?.('(pointer: coarse)')?.matches;
     if (isTouch) return 26;
-    return Math.max(8, Math.min(12, chart.getSlotWidth() * 0.55));
+    return Math.max(5, Math.min(7, chart.getSlotWidth() * 0.35));
 }
 
 function stopInertia(chart) {
@@ -209,6 +209,7 @@ function finishDrawingDragHistory(chart) {
     }
     chart.drawingDragSnapshot = null;
     chart.drawingDragChanged = false;
+    chart.movingLineSnapshot = null;
 }
 
 function syncLineToolbar(chart) {
@@ -848,7 +849,11 @@ export function initEvents(chart) {
         const slotWidth = chart.getSlotWidth();
         const centerOffset = slotWidth > 0 ? chart.getCandleWidth() / 2 / slotWidth : 0;
         const date = chart.getDateForIndex?.(Math.round(point.x - centerOffset));
-        if (date) point.time = toISODate(date);
+        if (date) {
+            point.time = toISODate(date);
+        } else {
+            delete point.time;
+        }
     }
 
     function updateDrawingTimes(line) {
@@ -865,8 +870,11 @@ export function initEvents(chart) {
     }
 
     function finalizeSelectedDrawingTimes() {
-        const line = lines[chart.selectedLineIndex];
-        if (line) updateDrawingTimes(line);
+        // Drawing points stay in free chart coordinates so they can live outside candle data.
+    }
+
+    function toFreeDrawingPoint(point) {
+        return point ? { x: point.x, y: point.y } : null;
     }
 
     function offsetDrawingPoint(point, chartHeight) {
@@ -974,6 +982,26 @@ export function initEvents(chart) {
         chart.crosshair = { x: snappedX, y: point.y, candleIndex };
     }
 
+    function beginMovingLineSnapshot(line, mouseX, mouseY, chartHeight) {
+        if (!line || line.type !== 'finite' || !line.start || !line.end) {
+            chart.movingLineSnapshot = null;
+            return;
+        }
+
+        chart.movingLineSnapshot = {
+            mouseX,
+            startPrice: yToPrice(mouseY, chartHeight, view, options.scaleType),
+            start: {
+                x: getDrawingPointX(chart, line.start),
+                y: line.start.y,
+            },
+            end: {
+                x: getDrawingPointX(chart, line.end),
+                y: line.end.y,
+            },
+        };
+    }
+
     function scheduleTouchCrosshairHold(point, chartHeight) {
         chart.touchCrosshairTimer = setTimeout(() => {
             chart.touchCrosshairTimer = null;
@@ -1019,13 +1047,32 @@ export function initEvents(chart) {
         const logMoveRatio = currentPrice / Math.max(previousPrice, 1e-10);
 
         if (line.type === 'finite' && line.start && line.end) {
-            line.start.x = getDrawingPointX(chart, line.start) + dx;
-            line.start.y = options.scaleType === 'logarithmic' ? line.start.y * logMoveRatio : line.start.y + dy;
-            line.end.x = getDrawingPointX(chart, line.end) + dx;
-            line.end.y = options.scaleType === 'logarithmic' ? line.end.y * logMoveRatio : line.end.y + dy;
-            delete line.start.time;
-            delete line.end.time;
-            markDrawingDragChanged(chart);
+            if (!chart.movingLineSnapshot) beginMovingLineSnapshot(line, chart.lastMouseX, chart.lastMouseY, chartHeight);
+            const snapshot = chart.movingLineSnapshot;
+            const startX = snapshot?.start.x ?? getDrawingPointX(chart, line.start);
+            const endX = snapshot?.end.x ?? getDrawingPointX(chart, line.end);
+            const rawDx = snapshot
+                ? (mouseX - snapshot.mouseX) / (candleWidth + spacing)
+                : dx;
+            const rawDy = snapshot
+                ? currentPrice - snapshot.startPrice
+                : dy;
+            const rawLogRatio = snapshot
+                ? currentPrice / Math.max(snapshot.startPrice, 1e-10)
+                : logMoveRatio;
+            const moveDx = rawDx;
+            const moveDy = rawDy;
+            const moveLogRatio = rawLogRatio;
+
+            if (moveDx || moveDy) {
+                line.start.x = startX + moveDx;
+                line.start.y = options.scaleType === 'logarithmic' ? (snapshot?.start.y ?? line.start.y) * moveLogRatio : (snapshot?.start.y ?? line.start.y) + moveDy;
+                line.end.x = endX + moveDx;
+                line.end.y = options.scaleType === 'logarithmic' ? (snapshot?.end.y ?? line.end.y) * moveLogRatio : (snapshot?.end.y ?? line.end.y) + moveDy;
+                delete line.start.time;
+                delete line.end.time;
+                markDrawingDragChanged(chart);
+            }
         } else if (line.type === 'horizontal' && line.point1) {
             line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
             markDrawingDragChanged(chart);
@@ -1064,6 +1111,7 @@ export function initEvents(chart) {
                 chart.activeLineHandle = target.key;
             } else {
                 chart.isMovingLine = true;
+                beginMovingLineSnapshot(line, chart.lastMouseX, chart.lastMouseY, canvas.offsetHeight - TIME_AXIS_HEIGHT);
             }
             chart.touchDragFeedbackUntil = performance.now() + 260;
             navigator.vibrate?.(8);
@@ -1298,7 +1346,7 @@ export function initEvents(chart) {
                     textBold: false,
                     textSize: 12,
                     locked: false,
-                    point1: { x: chart.snapPoint.x, y: chart.snapPoint.y, time: chart.snapPoint.time },
+                    point1: toFreeDrawingPoint(chart.snapPoint),
                 };
                 lines.push(newLine);
                 pushDrawingHistory(chart, before);
@@ -1315,7 +1363,7 @@ export function initEvents(chart) {
             } else if (chart.lineStartPoint === null) {
                 chart.lineStartPoint = chart.snapPoint;
             } else {
-                const lineEndPoint = { x: chart.snapPoint.x, y: chart.snapPoint.y, time: chart.snapPoint.time };
+                const lineEndPoint = toFreeDrawingPoint(chart.snapPoint);
                 const newLine = {
                     type: chart.isDrawingFibonacci ? 'fibonacci' : chart.isDrawingMeasure ? 'measure' : chart.isDrawingLine ? 'finite' : 'infinite',
                     scaleType: options.scaleType,
@@ -1327,9 +1375,9 @@ export function initEvents(chart) {
                     textBold: false,
                     textSize: 12,
                     locked: false,
-                    start: chart.isDrawingLine ? { ...chart.lineStartPoint } : undefined,
+                    start: chart.isDrawingLine ? toFreeDrawingPoint(chart.lineStartPoint) : undefined,
                     end: chart.isDrawingLine ? lineEndPoint : undefined,
-                    point1: (chart.isDrawingInfiniteLine || chart.isDrawingFibonacci || chart.isDrawingMeasure) ? { ...chart.lineStartPoint } : undefined,
+                    point1: (chart.isDrawingInfiniteLine || chart.isDrawingFibonacci || chart.isDrawingMeasure) ? toFreeDrawingPoint(chart.lineStartPoint) : undefined,
                     point2: (chart.isDrawingInfiniteLine || chart.isDrawingFibonacci || chart.isDrawingMeasure) ? lineEndPoint : undefined,
                 };
                 const before = captureDrawingState(chart);
@@ -1449,10 +1497,9 @@ export function initEvents(chart) {
         if (mouseX <= width - AXIS_MARGIN && mouseY <= height) {
             const candleWidth = chart.getCandleWidth();
             const spacing = chart.getBarSpacing();
-            const lineHandle = findLineHandleAt(chart, mouseX, mouseY, height);
-            if (lineHandle && !isDrawingAnyTool()) {
-                chart.selectedLineIndex = lineHandle.lineIndex;
-                chart.activeLineHandle = lines[lineHandle.lineIndex]?.locked ? null : lineHandle.key;
+            const selectedHandle = findLineHandleAt(chart, mouseX, mouseY, height);
+            if (selectedHandle && selectedHandle.lineIndex === chart.selectedLineIndex && !isDrawingAnyTool()) {
+                chart.activeLineHandle = lines[selectedHandle.lineIndex]?.locked ? null : selectedHandle.key;
                 if (chart.activeLineHandle) beginDrawingDragHistory(chart);
                 syncLineToolbar(chart);
                 chart.lastMouseX = mouseX;
@@ -1463,15 +1510,29 @@ export function initEvents(chart) {
             }
 
             const closestLineIndex = findDrawingAt(mouseX, mouseY, width, height);
-
             if (closestLineIndex !== -1 && !isDrawingAnyTool()) {
                 chart.selectedLineIndex = closestLineIndex;
                 chart.isMovingLine = !lines[closestLineIndex]?.locked;
-                if (chart.isMovingLine) beginDrawingDragHistory(chart);
+                if (chart.isMovingLine) {
+                    beginMovingLineSnapshot(lines[closestLineIndex], mouseX, mouseY, height);
+                    beginDrawingDragHistory(chart);
+                }
                 syncLineToolbar(chart);
                 chart.lastMouseX = mouseX;
                 chart.lastMouseY = mouseY;
                 canvas.style.cursor = chart.isMovingLine ? 'grab' : 'default';
+                chart.render();
+                return;
+            }
+
+            if (selectedHandle && !isDrawingAnyTool()) {
+                chart.selectedLineIndex = selectedHandle.lineIndex;
+                chart.activeLineHandle = lines[selectedHandle.lineIndex]?.locked ? null : selectedHandle.key;
+                if (chart.activeLineHandle) beginDrawingDragHistory(chart);
+                syncLineToolbar(chart);
+                chart.lastMouseX = mouseX;
+                chart.lastMouseY = mouseY;
+                canvas.style.cursor = 'grab';
                 chart.render();
                 return;
             }
@@ -1492,7 +1553,7 @@ export function initEvents(chart) {
                         textBold: false,
                         textSize: 12,
                         locked: false,
-                        point1: { x: point.x, y: point.y, time: point.time },
+                        point1: toFreeDrawingPoint(point),
                     };
                     lines.push(newLine);
                     pushDrawingHistory(chart, before);
@@ -1512,7 +1573,7 @@ export function initEvents(chart) {
                 if (chart.lineStartPoint === null) {
                     chart.lineStartPoint = point;
                 } else {
-                    const lineEndPoint = { x: point.x, y: point.y, time: point.time };
+                    const lineEndPoint = toFreeDrawingPoint(point);
                     const newLine = {
                         type: chart.isDrawingFibonacci ? 'fibonacci' : chart.isDrawingMeasure ? 'measure' : chart.isDrawingLine ? 'finite' : 'infinite',
                         scaleType: options.scaleType,
@@ -1524,9 +1585,9 @@ export function initEvents(chart) {
                         textBold: false,
                         textSize: 12,
                         locked: false,
-                        start: chart.isDrawingLine ? { ...chart.lineStartPoint } : undefined,
+                        start: chart.isDrawingLine ? toFreeDrawingPoint(chart.lineStartPoint) : undefined,
                         end: chart.isDrawingLine ? lineEndPoint : undefined,
-                        point1: (chart.isDrawingInfiniteLine || chart.isDrawingFibonacci || chart.isDrawingMeasure) ? { ...chart.lineStartPoint } : undefined,
+                        point1: (chart.isDrawingInfiniteLine || chart.isDrawingFibonacci || chart.isDrawingMeasure) ? toFreeDrawingPoint(chart.lineStartPoint) : undefined,
                         point2: (chart.isDrawingInfiniteLine || chart.isDrawingFibonacci || chart.isDrawingMeasure) ? lineEndPoint : undefined,
                     };
                     if ((newLine.start || newLine.point1) && (newLine.end || newLine.point2)) {
@@ -1642,58 +1703,20 @@ export function initEvents(chart) {
             const line = lines[chart.selectedLineIndex];
             const point = getSnappedDrawingPoint(chart, mouseX, mouseY, chartHeight);
             if (line && line[chart.activeLineHandle]) {
-                line[chart.activeLineHandle] = { x: point.x, y: point.y };
-                if (point.time) line[chart.activeLineHandle].time = point.time;
+                line[chart.activeLineHandle] = toFreeDrawingPoint(point);
                 chart.snapPoint = point;
                 markDrawingDragChanged(chart);
             }
             canvas.style.cursor = 'grabbing';
             chart.requestRender();
         } else if (chart.isMovingLine && chart.selectedLineIndex !== -1) {
-            const candleWidth = chart.getCandleWidth();
-            const spacing = chart.getBarSpacing();
-            const dx = (mouseX - chart.lastMouseX) / (candleWidth + spacing);
-            const previousPrice = yToPrice(chart.lastMouseY, chartHeight, view, options.scaleType);
-            const currentPrice = yToPrice(mouseY, chartHeight, view, options.scaleType);
-            const dy = currentPrice - previousPrice;
-            const logMoveRatio = currentPrice / Math.max(previousPrice, 1e-10);
             const line = lines[chart.selectedLineIndex];
             if (line.locked) {
                 chart.isMovingLine = false;
                 canvas.style.cursor = 'default';
                 return;
             }
-            if (line.type === 'finite' && line.start && line.end) {
-                line.start.x = getDrawingPointX(chart, line.start) + dx;
-                line.start.y = options.scaleType === 'logarithmic' ? line.start.y * logMoveRatio : line.start.y + dy;
-                line.end.x = getDrawingPointX(chart, line.end) + dx;
-                line.end.y = options.scaleType === 'logarithmic' ? line.end.y * logMoveRatio : line.end.y + dy;
-                updatePointTimeFromX(line.start);
-                updatePointTimeFromX(line.end);
-                markDrawingDragChanged(chart);
-            } else if (line.type === 'horizontal' && line.point1) {
-                line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
-                markDrawingDragChanged(chart);
-            } else if (line.type === 'vertical' && line.point1) {
-                line.point1.x = getDrawingPointX(chart, line.point1) + dx;
-                delete line.point1.time;
-                markDrawingDragChanged(chart);
-            } else if ((line.type === 'infinite' || line.type === 'fibonacci' || line.type === 'measure') && line.point1 && line.point2) {
-                line.point1.x = getDrawingPointX(chart, line.point1) + dx;
-                line.point1.y = options.scaleType === 'logarithmic' ? line.point1.y * logMoveRatio : line.point1.y + dy;
-                line.point2.x = getDrawingPointX(chart, line.point2) + dx;
-                line.point2.y = options.scaleType === 'logarithmic' ? line.point2.y * logMoveRatio : line.point2.y + dy;
-                if (line.type === 'measure') {
-                    delete line.point1.time;
-                    delete line.point2.time;
-                } else {
-                    updatePointTimeFromX(line.point1);
-                    updatePointTimeFromX(line.point2);
-                }
-                markDrawingDragChanged(chart);
-            }
-            chart.lastMouseX = mouseX;
-            chart.lastMouseY = mouseY;
+            moveSelectedDrawing(mouseX, mouseY, chartHeight);
             canvas.style.cursor = 'grabbing';
             chart.requestRender();
         } else if (isDrawingAnyTool()) {

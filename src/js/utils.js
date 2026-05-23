@@ -150,7 +150,8 @@ export function getLineParameters(line, scaleType = 'linear') {
 
 export function getDrawingPointX(chart, point, candleWidth = null, spacing = null) {
     if (!point) return 0;
-    if (!point.time || !chart?.getIndexForDate) return point.x ?? 0;
+    if (Number.isFinite(point.x)) return point.x;
+    if (!point.time || !chart?.getIndexForDate) return 0;
 
     const date = parseDateUTC(point.time);
     const index = chart.getIndexForDate(date);
