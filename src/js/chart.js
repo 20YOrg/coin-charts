@@ -1,24 +1,64 @@
 import { DataManager } from './data-manager.js';
 import { initEvents } from './events.js';
-import { renderGrid, renderCandles, renderCrosshair, renderCrosshairAxisLabels, renderDrawingFeedback, renderLines } from './rendering.js';
+import { renderGrid, renderCandles, renderCrosshair, renderCrosshairAxisLabels, renderDrawingFeedback, renderLines, renderLineAxisLabels } from './rendering.js';
 import { renderIndicators } from './indicators.js';
 import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, addMonthsClamped, generateMonthTicks, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING, normalizeDrawing } from './utils.js';
 
 const DRAWINGS_STORAGE_KEY = 'coin-charts:btc-usd:drawings:v1';
+const CHART_THEMES = {
+    light: {
+        background: '#ffffff',
+        axisBackground: '#ffffff',
+        axisColor: '#131722',
+        gridColor: '#f0f3fa',
+        crosshairColor: '#9aa0aa',
+        axisLabelBackground: '#131722',
+        axisLabelText: '#ffffff',
+        handleFill: '#ffffff',
+        handleStroke: '#131722',
+        upColor: '#089981',
+        downColor: '#f23645',
+        lastPriceColor: '#089981',
+    },
+    dark: {
+        background: '#0f131a',
+        axisBackground: '#0f131a',
+        axisColor: '#c7d0df',
+        gridColor: '#222a35',
+        crosshairColor: '#6f7b8c',
+        axisLabelBackground: '#d7e3f5',
+        axisLabelText: '#101419',
+        handleFill: '#111827',
+        handleStroke: '#d7e3f5',
+        upColor: '#22ab94',
+        downColor: '#f7525f',
+        lastPriceColor: '#22ab94',
+    },
+};
 
 export class Chart {
     constructor(canvas, options = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.dataManager = new DataManager(this);
+        const themeName = CHART_THEMES[options.theme] ? options.theme : 'light';
+        const theme = CHART_THEMES[themeName];
         this.options = {
             candleWidth: options.candleWidth || 10,
-            upColor: options.upColor || '#F08852',
-            downColor: options.downColor || '#6D96E7',
-            background: options.background || '#FFFFFF',
-            axisColor: options.axisColor || '#000000',
+            theme: themeName,
+            upColor: options.upColor || theme.upColor,
+            downColor: options.downColor || theme.downColor,
+            background: options.background || theme.background,
+            axisBackground: options.axisBackground || theme.axisBackground,
+            axisColor: options.axisColor || theme.axisColor,
             scaleType: options.scaleType || 'linear',
-            gridColor: options.gridColor || '#F3F3F3',
+            gridColor: options.gridColor || theme.gridColor,
+            crosshairColor: options.crosshairColor || theme.crosshairColor,
+            axisLabelBackground: options.axisLabelBackground || theme.axisLabelBackground,
+            axisLabelText: options.axisLabelText || theme.axisLabelText,
+            handleFill: options.handleFill || theme.handleFill,
+            handleStroke: options.handleStroke || theme.handleStroke,
+            lastPriceColor: options.lastPriceColor || theme.lastPriceColor,
         };
         this.view = {
             offsetX: 0,
@@ -73,6 +113,24 @@ export class Chart {
         this.loadDrawings();
         initEvents(this);
         this.scrollToLatest();
+        this.render();
+    }
+
+    setTheme(themeName) {
+        const theme = CHART_THEMES[themeName] || CHART_THEMES.light;
+        this.options.theme = CHART_THEMES[themeName] ? themeName : 'light';
+        this.options.upColor = theme.upColor;
+        this.options.downColor = theme.downColor;
+        this.options.background = theme.background;
+        this.options.axisBackground = theme.axisBackground;
+        this.options.axisColor = theme.axisColor;
+        this.options.gridColor = theme.gridColor;
+        this.options.crosshairColor = theme.crosshairColor;
+        this.options.axisLabelBackground = theme.axisLabelBackground;
+        this.options.axisLabelText = theme.axisLabelText;
+        this.options.handleFill = theme.handleFill;
+        this.options.handleStroke = theme.handleStroke;
+        this.options.lastPriceColor = theme.lastPriceColor;
         this.render();
     }
 
@@ -751,7 +809,7 @@ export class Chart {
         const markerY = Math.round(Math.max(1, Math.min(chartHeight - labelHeight - 1, y - labelHeight / 2)));
 
         this.ctx.save();
-        this.ctx.strokeStyle = '#089981';
+        this.ctx.strokeStyle = this.options.lastPriceColor;
         this.ctx.setLineDash([1, 3]);
         this.ctx.beginPath();
         this.ctx.moveTo(0, Math.round(y) + 0.5);
@@ -759,15 +817,15 @@ export class Chart {
         this.ctx.stroke();
         this.ctx.setLineDash([]);
 
-        this.ctx.fillStyle = '#089981';
-        this.ctx.strokeStyle = '#089981';
+        this.ctx.fillStyle = this.options.lastPriceColor;
+        this.ctx.strokeStyle = this.options.lastPriceColor;
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
         this.ctx.roundRect(chartWidth, markerY, labelWidth, labelHeight, 3);
         this.ctx.fill();
         this.ctx.stroke();
 
-        this.ctx.fillStyle = '#ffffff';
+        this.ctx.fillStyle = this.options.axisLabelText;
         this.ctx.font = '400 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
@@ -909,6 +967,7 @@ export class Chart {
         });
 
         this.renderLastPriceMarker(chartWidth, chartHeight);
+        renderLineAxisLabels(this.ctx, this.lines, this, width, height, candleWidth, spacing);
         renderCrosshairAxisLabels(this.ctx, this.crosshair, this.showCrosshair, isDrawingTool, false, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing, this);
     }
 }

@@ -23,6 +23,66 @@ function formatMeasureValue(value) {
         : value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
+function formatAxisPrice(price) {
+    return Math.abs(price) >= 1000
+        ? price.toLocaleString('en-US', { maximumFractionDigits: 0 })
+        : price.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function formatTradingViewDate(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+    const weekday = date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+    const day = date.toLocaleDateString('en-US', { day: '2-digit', timeZone: 'UTC' });
+    const month = date.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
+    const year = date.toLocaleDateString('en-US', { year: '2-digit', timeZone: 'UTC' });
+    return `${weekday} ${day} ${month} '${year}`;
+}
+
+function getDateForChartX(chart, x, slotWidth) {
+    if (!chart?.getDateForIndex || !Number.isFinite(x) || !Number.isFinite(slotWidth) || slotWidth <= 0) return null;
+    const candleWidth = chart.getCandleWidth?.() ?? 0;
+    const centerOffset = candleWidth / 2 / slotWidth;
+    const pointX = (x - chart.view.offsetX) / slotWidth;
+    const index = Math.round(pointX - centerOffset);
+    return chart.getDateForIndex(index);
+}
+
+function drawPriceAxisLabel(ctx, price, y, chartWidth, chartHeight) {
+    if (!Number.isFinite(price) || !Number.isFinite(y) || y < 0 || y > chartHeight) return;
+    const labelHeight = 24;
+    const labelY = Math.round(Math.max(1, Math.min(chartHeight - labelHeight - 1, y - labelHeight / 2)));
+
+    ctx.save();
+    ctx.fillStyle = ctx.chartOptions?.axisLabelBackground || '#131722';
+    ctx.fillRect(chartWidth, labelY, AXIS_MARGIN, labelHeight);
+    ctx.fillStyle = ctx.chartOptions?.axisLabelText || '#ffffff';
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(formatAxisPrice(price), chartWidth + 8, labelY + labelHeight / 2);
+    ctx.restore();
+}
+
+function drawTimeAxisLabel(ctx, date, x, chartWidth, chartHeight) {
+    if (!Number.isFinite(x) || x < 0 || x > chartWidth) return;
+    const label = formatTradingViewDate(date);
+    if (!label) return;
+    const labelHeight = 24;
+    const timeAxisCenterY = chartHeight + TIME_AXIS_HEIGHT / 2;
+
+    ctx.save();
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    const labelWidth = Math.max(104, ctx.measureText(label).width + 18);
+    const labelX = Math.round(Math.max(1, Math.min(chartWidth - labelWidth - 1, x - labelWidth / 2)));
+    ctx.fillStyle = ctx.chartOptions?.axisLabelBackground || '#131722';
+    ctx.fillRect(labelX, timeAxisCenterY - labelHeight / 2, labelWidth, labelHeight);
+    ctx.fillStyle = ctx.chartOptions?.axisLabelText || '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, labelX + labelWidth / 2, timeAxisCenterY);
+    ctx.restore();
+}
+
 function renderMeasure(ctx, line, isSelected, chart, chartWidth, chartHeight, slotWidth) {
     const point1 = line.point1;
     const point2 = line.point2;
@@ -86,16 +146,16 @@ function renderMeasure(ctx, line, isSelected, chart, chartWidth, chartHeight, sl
     const labelHeight = 24;
     const labelX = Math.max(4, Math.min(chartWidth - labelWidth - 4, (x1 + x2) / 2 - labelWidth / 2));
     const labelY = Math.max(4, Math.min(chartHeight - labelHeight - 4, top - labelHeight - 8));
-    ctx.fillStyle = '#131722';
+    ctx.fillStyle = chart.options.axisLabelBackground;
     ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = chart.options.axisLabelText;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, labelX + labelWidth / 2, labelY + labelHeight / 2);
 
     if (isSelected) {
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#131722';
+        ctx.fillStyle = chart.options.handleFill;
+        ctx.strokeStyle = chart.options.handleStroke;
         ctx.lineWidth = 2;
         [point1, point2].forEach((point) => {
             const x = getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX;
@@ -172,7 +232,7 @@ function drawEditingCaret(ctx, label, textSize) {
     ctx.save();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = '#131722';
+    ctx.strokeStyle = ctx.chartOptions?.handleStroke || '#131722';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x, topY);
@@ -185,6 +245,7 @@ function renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, s
     const point = line.point1;
     if (!point) return;
     let labelPoint = null;
+    let handlePoint = null;
     const lineIndex = chart.lines.indexOf(line);
     const isHovered = lineIndex === chart.hoveredLineIndex;
     const isDragging = isSelected && (chart.isMovingLine || chart.activeLineHandle);
@@ -201,17 +262,7 @@ function renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, s
         ctx.lineTo(chartWidth, Math.round(y) + 0.5);
         const x = Math.max(10, Math.min(chartWidth - 10, getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX));
         labelPoint = { x: x + (line.textOffsetX || 0), y: y + (line.textOffsetY || 0), angle: 0 };
-        if (isSelected) {
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#131722';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(x, y, 5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-        }
+        handlePoint = { x, y };
     } else {
         const x = getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX;
         if (!Number.isFinite(x)) {
@@ -222,17 +273,7 @@ function renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, s
         ctx.lineTo(Math.round(x) + 0.5, chartHeight);
         const y = Math.max(10, Math.min(chartHeight - 10, priceToY(point.y, chartHeight, chart.view, chart.options.scaleType)));
         labelPoint = { x: x + (line.textOffsetX || 0), y: y + (line.textOffsetY || 0), angle: -Math.PI / 2 };
-        if (isSelected) {
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#131722';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(x, y, 5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-        }
+        handlePoint = { x, y };
     }
             const isTouchPulse = lineIndex === chart.selectedLineIndex && chart.touchDragFeedbackUntil && performance.now() < chart.touchDragFeedbackUntil;
             if (isSelected || isHovered || isTouchPulse) {
@@ -240,6 +281,15 @@ function renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, s
             }
     ctx.stroke();
     ctx.setLineDash([]);
+    if (isSelected && handlePoint) {
+        ctx.fillStyle = chart.options.handleFill;
+        ctx.strokeStyle = chart.options.handleStroke;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(handlePoint.x, handlePoint.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    }
     const showText = labelPoint
         && (line.text || lineIndex === chart.hoveredLineIndex || lineIndex === chart.editingLineTextIndex);
     if (showText) {
@@ -248,7 +298,7 @@ function renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, s
         ctx.save();
         ctx.translate(labelPoint.x, labelPoint.y);
         ctx.rotate(labelPoint.angle);
-        ctx.fillStyle = line.text ? (line.textColor || '#131722') : '#6fcad7';
+        ctx.fillStyle = line.text ? (line.textColor || chart.options.axisColor) : '#6fcad7';
         ctx.font = `${line.textBold ? '700' : '400'} ${textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
@@ -304,8 +354,8 @@ function renderFibonacci(ctx, line, isSelected, chart, chartWidth, chartHeight, 
 
     if (isSelected) {
         ctx.setLineDash([]);
-        ctx.strokeStyle = '#131722';
-        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = chart.options.handleStroke;
+        ctx.fillStyle = chart.options.handleFill;
         ctx.lineWidth = 2;
         [point1, point2].forEach((point) => {
             const x = getDrawingPointX(chart, point) * slotWidth + chart.view.offsetX;
@@ -325,11 +375,11 @@ export function renderGrid(ctx, options, data, view, width, height, candleWidth,
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = options.axisBackground;
     ctx.fillRect(chartWidth, 0, AXIS_MARGIN, chartHeight);
     ctx.fillRect(0, chartHeight, width, TIME_AXIS_HEIGHT);
 
-    ctx.strokeStyle = '#f0f3fa';
+    ctx.strokeStyle = options.gridColor;
     ctx.lineWidth = 1;
 
     priceTicks.forEach(({ y }) => {
@@ -384,7 +434,7 @@ export function renderCrosshair(ctx, crosshair, showCrosshair, isDrawingLine, is
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
 
-    ctx.strokeStyle = '#9aa0aa';
+    ctx.strokeStyle = options.crosshairColor;
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 3]);
     ctx.beginPath();
@@ -414,9 +464,9 @@ export function renderCrosshairAxisLabels(ctx, crosshair, showCrosshair, isDrawi
     const labelWidth = AXIS_MARGIN;
     const labelY = Math.round(Math.max(1, Math.min(chartHeight - labelHeight - 1, y - labelHeight / 2)));
 
-    ctx.fillStyle = '#131722';
+    ctx.fillStyle = options.axisLabelBackground;
     ctx.fillRect(chartWidth, labelY, labelWidth, labelHeight);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = options.axisLabelText;
     ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -428,9 +478,9 @@ export function renderCrosshairAxisLabels(ctx, crosshair, showCrosshair, isDrawi
     const timeWidth = Math.max(72, ctx.measureText(timeText).width + 18);
     const timeX = Math.round(Math.max(1, Math.min(chartWidth - timeWidth - 1, x - timeWidth / 2)));
     const timeAxisCenterY = chartHeight + TIME_AXIS_HEIGHT / 2;
-    ctx.fillStyle = '#131722';
+    ctx.fillStyle = options.axisLabelBackground;
     ctx.fillRect(timeX, timeAxisCenterY - labelHeight / 2, timeWidth, labelHeight);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = options.axisLabelText;
     ctx.textAlign = 'center';
     ctx.fillText(timeText, timeX + timeWidth / 2, timeAxisCenterY);
 }
@@ -439,6 +489,7 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
     const slotWidth = candleWidth + spacing;
+    ctx.chartOptions = chart.options;
 
     lines.forEach((line, index) => {
         if (!line || (!line.start && !line.point1)) {
@@ -496,7 +547,7 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                 ctx.save();
                 ctx.translate(midPoint.x + (line.textOffsetX || 0), midPoint.y + (line.textOffsetY || 0));
                 ctx.rotate(angle);
-                ctx.fillStyle = line.text ? (line.textColor || '#131722') : '#6fcad7';
+                ctx.fillStyle = line.text ? (line.textColor || chart.options.axisColor) : '#6fcad7';
                 const textSize = line.textSize || 12;
                 ctx.font = `${line.textBold ? '700' : '400'} ${textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
                 ctx.textAlign = 'center';
@@ -513,8 +564,8 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
                     ? [line.start, line.end]
                     : [line.point1, line.point2];
                 ctx.save();
-                ctx.fillStyle = '#ffffff';
-                ctx.strokeStyle = '#131722';
+                ctx.fillStyle = chart.options.handleFill;
+                ctx.strokeStyle = chart.options.handleStroke;
                 ctx.lineWidth = 2;
                 anchors.forEach((anchor) => {
                     if (!anchor) return;
@@ -536,12 +587,42 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
     ctx.lineWidth = 1;
 }
 
+export function renderLineAxisLabels(ctx, lines, chart, width, height, candleWidth, spacing) {
+    const chartHeight = height - TIME_AXIS_HEIGHT;
+    const chartWidth = width - AXIS_MARGIN;
+    const slotWidth = candleWidth + spacing;
+    ctx.chartOptions = chart.options;
+
+    lines.forEach((line) => {
+        if (!line?.point1) return;
+
+        if (line.type === 'horizontal') {
+            const y = priceToY(line.point1.y, chartHeight, chart.view, chart.options.scaleType);
+            drawPriceAxisLabel(ctx, line.point1.y, y, chartWidth, chartHeight);
+        } else if (line.type === 'vertical') {
+            const x = getDrawingPointX(chart, line.point1) * slotWidth + chart.view.offsetX;
+            drawTimeAxisLabel(ctx, getDateForChartX(chart, x, slotWidth), x, chartWidth, chartHeight);
+        }
+    });
+
+    if (chart.isDrawingVerticalLine && chart.snapPoint) {
+        const x = getDrawingPointX(chart, chart.snapPoint, candleWidth, spacing) * slotWidth + chart.view.offsetX;
+        drawTimeAxisLabel(ctx, getDateForChartX(chart, x, slotWidth), x, chartWidth, chartHeight);
+    }
+
+    if (chart.isDrawingHorizontalLine && chart.snapPoint) {
+        const y = priceToY(chart.snapPoint.y, chartHeight, chart.view, chart.options.scaleType);
+        drawPriceAxisLabel(ctx, chart.snapPoint.y, y, chartWidth, chartHeight);
+    }
+}
+
 export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, spacing) {
     if (!chart.snapPoint || (!chart.isDrawingLine && !chart.isDrawingInfiniteLine && !chart.isDrawingHorizontalLine && !chart.isDrawingVerticalLine && !chart.isDrawingFibonacci && !chart.isDrawingMeasure)) return;
 
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
     const slotWidth = candleWidth + spacing;
+    ctx.chartOptions = chart.options;
     const snapX = getDrawingPointX(chart, chart.snapPoint, candleWidth, spacing) * slotWidth + chart.view.offsetX;
     const snapY = priceToY(chart.snapPoint.y, chartHeight, chart.view, chart.options.scaleType);
     if (!Number.isFinite(snapX) || !Number.isFinite(snapY)) return;

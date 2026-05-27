@@ -226,9 +226,9 @@ function syncLineToolbar(chart) {
     if (!line) return;
 
     document.getElementById('line-color').value = line.color || '#2962ff';
-    document.getElementById('line-text-color').value = line.textColor || '#131722';
+    document.getElementById('line-text-color').value = line.textColor || chart.options.axisColor;
     document.getElementById('line-color-swatch')?.style.setProperty('background', line.color || '#2962ff');
-    document.getElementById('line-text-color-swatch')?.style.setProperty('background', line.textColor || '#131722');
+    document.getElementById('line-text-color-swatch')?.style.setProperty('background', line.textColor || chart.options.axisColor);
     document.getElementById('line-width-label')?.replaceChildren(document.createTextNode(`${line.width || 2}px`));
     document.querySelectorAll('#line-width-menu button').forEach((button) => {
         button.classList.toggle('active', Number.parseInt(button.dataset.value, 10) === (line.width || 2));
@@ -764,16 +764,24 @@ export function initEvents(chart) {
         document.getElementById('tool-measure')?.classList.remove('active');
     }
 
-    function getAxisLineHit(chart, line, mouseX, mouseY, chartHeight) {
-        if (!line || !line.point1) return Infinity;
+    function getAxisLineHit(chart, line, mouseX, mouseY, width, chartHeight) {
+        if (!line?.point1) return Infinity;
+        const chartWidth = width - AXIS_MARGIN;
+
         if (line.type === 'horizontal') {
             const y = priceToY(line.point1.y, chartHeight, chart.view, chart.options.scaleType);
-            return Math.abs(mouseY - y);
+            return Number.isFinite(y) && y >= 0 && y <= chartHeight
+                ? Math.abs(mouseY - y)
+                : Infinity;
         }
+
         if (line.type === 'vertical') {
             const x = getDrawingPointX(chart, line.point1) * chart.getSlotWidth() + chart.view.offsetX;
-            return Math.abs(mouseX - x);
+            return Number.isFinite(x) && x >= 0 && x <= chartWidth
+                ? Math.abs(mouseX - x)
+                : Infinity;
         }
+
         return Infinity;
     }
 
@@ -820,7 +828,7 @@ export function initEvents(chart) {
         let minDistance = Infinity;
         let closestLineIndex = -1;
 
-        lines.forEach((line, index) => {
+        chart.lines.forEach((line, index) => {
             if (!line || (!line.start && !line.point1)) return;
             let distance = Infinity;
             if (line.type === 'fibonacci') {
@@ -828,7 +836,7 @@ export function initEvents(chart) {
             } else if (line.type === 'measure') {
                 distance = getMeasureHit(chart, line, mouseX, mouseY, chartHeight);
             } else if (line.type === 'horizontal' || line.type === 'vertical') {
-                distance = getAxisLineHit(chart, line, mouseX, mouseY, chartHeight);
+                distance = getAxisLineHit(chart, line, mouseX, mouseY, width, chartHeight);
             } else {
                 const points = getLinePoints(chart, line, width, chartHeight, candleWidth, spacing, 50);
                 for (let i = 0; i < points.length - 1; i++) {
@@ -1342,7 +1350,7 @@ export function initEvents(chart) {
                     width: 2,
                     style: 'solid',
                     text: '',
-                    textColor: '#131722',
+                    textColor: chart.options.axisColor,
                     textBold: false,
                     textSize: 12,
                     locked: false,
@@ -1371,7 +1379,7 @@ export function initEvents(chart) {
                     width: 2,
                     style: 'solid',
                     text: '',
-                    textColor: '#131722',
+                    textColor: chart.options.axisColor,
                     textBold: false,
                     textSize: 12,
                     locked: false,
@@ -1549,7 +1557,7 @@ export function initEvents(chart) {
                         width: 2,
                         style: 'solid',
                         text: '',
-                        textColor: '#131722',
+                        textColor: chart.options.axisColor,
                         textBold: false,
                         textSize: 12,
                         locked: false,
@@ -1581,7 +1589,7 @@ export function initEvents(chart) {
                         width: 2,
                         style: 'solid',
                         text: '',
-                        textColor: '#131722',
+                        textColor: chart.options.axisColor,
                         textBold: false,
                         textSize: 12,
                         locked: false,
@@ -1729,7 +1737,7 @@ export function initEvents(chart) {
                 canvas.style.cursor = 'crosshair';
             }
             chart.requestRender();
-        } else if (chart.showCrosshair && !isDrawingAnyTool()) {
+        } else if (!isDrawingAnyTool()) {
             if (mouseX > width - AXIS_MARGIN) {
                 chart.crosshair = null;
                 canvas.style.cursor = 'ns-resize';
@@ -1742,46 +1750,12 @@ export function initEvents(chart) {
                 const slotWidth = candleWidth + spacing;
                 const candleIndex = Math.max(0, Math.round((mouseX - view.offsetX - candleWidth / 2) / slotWidth));
                 const snappedX = candleIndex * slotWidth + view.offsetX + candleWidth / 2;
-                chart.crosshair = { x: snappedX, y: mouseY, candleIndex };
+                chart.crosshair = chart.showCrosshair ? { x: snappedX, y: mouseY, candleIndex } : null;
                 const lineHandle = findLineHandleAt(chart, mouseX, mouseY, chartHeight);
                 const textHitBeforeLineCheck = findLineTextAt(chart, mouseX, mouseY, width, chartHeight);
-                let isNearLine = false;
-                let hoveredLineIndex = -1;
                 const hitRadius = getLineHitRadius(chart);
-                if (!lineHandle && lines.length) {
-                    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-                        const line = lines[lineIndex];
-                        if (!line || (!line.start && !line.point1)) continue;
-                        if (line.type === 'fibonacci') {
-                            const distance = getFibonacciHit(chart, line, mouseX, mouseY, width, chartHeight);
-                            if (distance < hitRadius) {
-                                isNearLine = true;
-                                hoveredLineIndex = lineIndex;
-                            }
-                        } else if (line.type === 'measure') {
-                            const distance = getMeasureHit(chart, line, mouseX, mouseY, chartHeight);
-                            if (distance < hitRadius) {
-                                isNearLine = true;
-                                hoveredLineIndex = lineIndex;
-                            }
-                        } else {
-                            const points = getLinePoints(chart, line, width, chartHeight, candleWidth, spacing, 32);
-                            for (let i = 0; i < points.length - 1; i++) {
-                                const x1 = points[i].x;
-                                const y1 = points[i].y;
-                                const x2 = points[i + 1].x;
-                                const y2 = points[i + 1].y;
-                                const distance = distanceToLineSegment(mouseX, mouseY, x1, y1, x2, y2);
-                                if (distance < hitRadius) {
-                                    isNearLine = true;
-                                    hoveredLineIndex = lineIndex;
-                                    break;
-                                }
-                            }
-                        }
-                        if (isNearLine) break;
-                    }
-                }
+                const hoveredLineIndex = lineHandle ? -1 : findDrawingAt(mouseX, mouseY, width, chartHeight, hitRadius);
+                const isNearLine = hoveredLineIndex !== -1;
                 chart.hoveredLineIndex = lineHandle
                     ? lineHandle.lineIndex
                     : textHitBeforeLineCheck

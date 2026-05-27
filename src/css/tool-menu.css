@@ -9,8 +9,8 @@
     align-items: center;
     gap: 2px;
     padding: 8px 0;
-    background: rgba(255, 255, 255, 0.96);
-    border-right: 1px solid #e0e3eb;
+    background: var(--tv-elevated-bg);
+    border-right: 1px solid var(--tv-border);
 }
 
 #tool-menu button {
@@ -21,7 +21,7 @@
     margin: 0;
     padding: 0;
     background: transparent;
-    color: #131722;
+    color: var(--tv-text);
     cursor: pointer;
     transition: background-color 120ms ease, color 120ms ease;
     display: flex;
@@ -31,32 +31,21 @@
 }
 
 #tool-menu button:hover {
-    background: #f0f3fa;
+    background: var(--tv-hover);
 }
 
 #tool-menu button.active {
-    background: #e7efff;
-    color: #2962ff;
-}
-
-#tool-menu button.active::after {
-    content: "";
-    position: absolute;
-    left: 4px;
-    right: 4px;
-    bottom: 2px;
-    height: 3px;
-    border-radius: 999px;
-    background: currentColor;
+    background: var(--tv-active);
+    color: var(--tv-blue);
 }
 
 #chart-container.drawing-mode #tool-menu button.active {
-    background: #dce8ff;
+    background: var(--tv-active);
     box-shadow: inset 0 0 0 1px rgba(41, 98, 255, 0.18);
 }
 
 #tool-menu button:disabled {
-    color: #b2b5be;
+    color: var(--tv-muted);
     cursor: default;
 }
 
@@ -74,7 +63,7 @@
 }
 
 #tool-line circle {
-    fill: #ffffff;
+    fill: var(--tv-control-bg);
     stroke: currentColor;
 }
 
@@ -94,10 +83,10 @@
     align-items: center;
     gap: 7px;
     padding: 6px 9px;
-    background: rgba(255, 255, 255, 0.98);
-    border: 1px solid #e0e3eb;
+    background: var(--tv-elevated-bg);
+    border: 1px solid var(--tv-border);
     border-radius: 8px;
-    box-shadow: 0 8px 22px rgba(19, 23, 34, 0.14);
+    box-shadow: 0 8px 22px var(--tv-shadow);
     transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
@@ -125,7 +114,7 @@
     border-radius: 4px;
     padding: 0;
     background: transparent;
-    color: #131722;
+    color: var(--tv-text);
     font-size: 13px;
     display: inline-flex;
     align-items: center;
@@ -134,19 +123,19 @@
 
 #line-toolbar button:hover,
 #line-toolbar button.active {
-    background: #f0f3fa;
-    color: #2962ff;
+    background: var(--tv-hover);
+    color: var(--tv-blue);
 }
 
 #line-toolbar button:disabled {
-    color: #b2b5be;
+    color: var(--tv-muted);
     cursor: default;
     opacity: 0.55;
 }
 
 #line-toolbar button:disabled:hover {
     background: transparent;
-    color: #b2b5be;
+    color: var(--tv-muted);
 }
 
 #line-toolbar svg {
@@ -163,7 +152,7 @@
     height: 22px;
     flex: 0 0 1px;
     margin: 0 2px;
-    background: rgba(224, 227, 235, 0.72);
+    background: var(--tv-border);
 }
 
 .toolbar-color {
@@ -172,7 +161,7 @@
     align-items: center;
     gap: 6px;
     padding: 0;
-    color: #4b5563;
+    color: var(--tv-muted);
     font-size: 12px;
 }
 
@@ -192,7 +181,7 @@
     padding: 0 !important;
     border: 0 !important;
     background: transparent !important;
-    color: #131722 !important;
+    color: var(--tv-text) !important;
     position: relative;
 }
 
@@ -200,7 +189,7 @@
 .style-button:hover,
 .choice-button:hover,
 #line-text-bold:hover {
-    background: #f0f3fa !important;
+    background: var(--tv-hover) !important;
 }
 
 .toolbar-swatch {
@@ -211,7 +200,7 @@
     height: 4px;
     border: 0;
     border-radius: 999px;
-    background: #2962ff;
+    background: var(--tv-blue);
 }
 
 .color-menu {
@@ -224,10 +213,10 @@
     grid-template-columns: repeat(6, 18px);
     gap: 6px;
     padding: 9px;
-    background: #ffffff;
-    border: 1px solid #e0e3eb;
+    background: var(--tv-control-bg);
+    border: 1px solid var(--tv-border);
     border-radius: 6px;
-    box-shadow: 0 8px 22px rgba(19, 23, 34, 0.16);
+    box-shadow: 0 8px 22px var(--tv-shadow);
 }
 
 .color-menu[hidden] {
@@ -237,14 +226,14 @@
 .color-menu button {
     width: 18px !important;
     height: 18px !important;
-    border: 1px solid #d1d4dc !important;
+    border: 1px solid var(--tv-border) !important;
     border-radius: 50% !important;
     background: var(--color-value) !important;
     padding: 0 !important;
 }
 
 .color-menu button.active {
-    outline: 2px solid #2962ff;
+    outline: 2px solid var(--tv-blue);
     outline-offset: 2px;
 }
 
@@ -290,10 +279,10 @@
     width: 168px;
     padding: 0;
     overflow: hidden;
-    background: #ffffff;
-    border: 1px solid #e0e3eb;
+    background: var(--tv-control-bg);
+    border: 1px solid var(--tv-border);
     border-radius: 8px;
-    box-shadow: 0 8px 22px rgba(19, 23, 34, 0.16);
+    box-shadow: 0 8px 22px var(--tv-shadow);
 }
 
 .style-menu[hidden] {
@@ -309,14 +298,14 @@
     gap: 14px;
     padding: 0 16px !important;
     border-radius: 0 !important;
-    color: #131722 !important;
+    color: var(--tv-text) !important;
     font-size: 14px !important;
     text-align: center;
 }
 
 .style-menu button.active {
-    background: #1f1f1f !important;
-    color: #ffffff !important;
+    background: var(--tv-text) !important;
+    color: var(--tv-control-bg) !important;
 }
 
 .style-menu .style-preview {
@@ -346,10 +335,10 @@
     width: 78px;
     padding: 0;
     overflow: hidden;
-    background: #ffffff;
-    border: 1px solid #e0e3eb;
+    background: var(--tv-control-bg);
+    border: 1px solid var(--tv-border);
     border-radius: 8px;
-    box-shadow: 0 8px 22px rgba(19, 23, 34, 0.16);
+    box-shadow: 0 8px 22px var(--tv-shadow);
 }
 
 .more-menu {
@@ -359,10 +348,10 @@
     z-index: 40;
     width: 112px;
     padding: 4px 0;
-    background: #ffffff;
-    border: 1px solid #e0e3eb;
+    background: var(--tv-control-bg);
+    border: 1px solid var(--tv-border);
     border-radius: 8px;
-    box-shadow: 0 8px 22px rgba(19, 23, 34, 0.16);
+    box-shadow: 0 8px 22px var(--tv-shadow);
 }
 
 .more-menu[hidden] {
@@ -375,13 +364,13 @@
     justify-content: flex-start !important;
     padding: 0 12px !important;
     border-radius: 0 !important;
-    color: #131722 !important;
+    color: var(--tv-text) !important;
     font-size: 13px !important;
 }
 
 .more-menu button.active,
 .more-menu button:hover {
-    background: #f0f3fa !important;
+    background: var(--tv-hover) !important;
 }
 
 .choice-menu[hidden] {
@@ -397,7 +386,7 @@
     gap: 0;
     padding: 0 14px !important;
     border-radius: 0 !important;
-    color: #131722 !important;
+    color: var(--tv-text) !important;
     font-size: 13px !important;
     text-align: left;
 }
@@ -408,8 +397,8 @@
 }
 
 .choice-menu button.active {
-    background: #1f1f1f !important;
-    color: #ffffff !important;
+    background: var(--tv-text) !important;
+    color: var(--tv-control-bg) !important;
 }
 
 .text-size-button {
@@ -428,7 +417,7 @@
 
 #line-text-size-label {
     min-width: 14px;
-    color: #4b5563;
+    color: var(--tv-muted);
     font-size: 11px;
     font-weight: 600;
     transform: translateY(3px);
@@ -468,7 +457,7 @@
     border-radius: 0;
     background: transparent;
     box-shadow: none;
-    color: #131722;
+    color: var(--tv-text);
     font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     line-height: 18px;
     text-align: left;
@@ -496,9 +485,9 @@
         max-width: calc(100% - 16px);
         flex-direction: row;
         padding: 4px;
-        border: 1px solid #e0e3eb;
+        border: 1px solid var(--tv-border);
         border-radius: 8px;
-        box-shadow: 0 6px 16px rgba(19, 23, 34, 0.12);
+        box-shadow: 0 6px 16px var(--tv-shadow);
     }
 
     #tool-menu button {
@@ -539,18 +528,18 @@
 
     #line-toolbar button:hover {
         background: transparent !important;
-        color: #131722 !important;
+        color: var(--tv-text) !important;
     }
 
     #line-toolbar button.active,
     #line-toolbar button.active:hover {
-        background: #f0f3fa !important;
-        color: #2962ff !important;
+        background: var(--tv-hover) !important;
+        color: var(--tv-blue) !important;
     }
 
     #line-toolbar button:disabled,
     #line-toolbar button:disabled:hover {
-        color: #b2b5be;
+        color: var(--tv-muted);
         background: transparent;
     }
 
