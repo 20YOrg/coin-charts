@@ -21,9 +21,9 @@ if (typeof btcUsdData !== 'undefined') {
     if (themeToggle) {
         const syncThemeToggle = () => {
             const isDark = chart.options.theme === 'dark';
-            themeToggle.textContent = isDark ? 'Light' : 'Dark';
             themeToggle.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
             themeToggle.setAttribute('aria-pressed', String(isDark));
+            themeToggle.dataset.theme = chart.options.theme;
         };
         syncThemeToggle();
         themeToggle.addEventListener('click', () => {

@@ -46,6 +46,7 @@ body {
 }
 
 #controls {
+    position: relative;
     flex: 0 0 44px;
     height: 44px;
     display: flex;
@@ -57,6 +58,11 @@ body {
     overflow-x: auto;
     overflow-y: hidden;
     white-space: nowrap;
+    scrollbar-width: none;
+}
+
+#controls::-webkit-scrollbar {
+    display: none;
 }
 
 .symbol-block {
@@ -188,8 +194,46 @@ button:focus-visible {
 }
 
 .theme-toggle {
-    min-width: 56px;
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    padding: 0;
     font-weight: 600;
+    border-radius: 999px;
+    background: var(--tv-elevated-bg);
+    box-shadow: 0 2px 8px var(--tv-shadow);
+}
+
+.theme-toggle:hover {
+    background: var(--tv-hover);
+}
+
+.theme-toggle .theme-icon {
+    grid-area: 1 / 1;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.theme-toggle .theme-icon-sun {
+    display: none;
+}
+
+.theme-toggle[data-theme="dark"] .theme-icon-sun {
+    display: block;
+}
+
+.theme-toggle[data-theme="dark"] .theme-icon-moon {
+    display: none;
 }
 
 #chart-container {
@@ -227,13 +271,14 @@ canvas {
 }
 
 #range-bar {
+    position: relative;
     flex: 0 0 42px;
     height: 42px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 0 14px;
+    padding: 0 52px 0 14px;
     background: var(--tv-bg);
     border-top: 1px solid var(--tv-border);
     overflow-x: auto;
@@ -341,7 +386,7 @@ canvas {
     #range-bar {
         flex: 0 0 40px;
         height: 40px;
-        padding: 0 8px;
+        padding: 0 46px 0 8px;
         gap: 8px;
         scrollbar-width: none;
     }
@@ -350,6 +395,10 @@ canvas {
         height: 30px;
         padding: 0 8px;
         font-size: 14px;
+    }
+
+    .theme-toggle {
+        right: 8px;
     }
 }
 
