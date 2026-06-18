@@ -990,6 +990,16 @@ export function initEvents(chart) {
         chart.crosshair = { x: snappedX, y: point.y, candleIndex };
     }
 
+    function updateMouseCrosshair(mouseX, mouseY, chartHeight) {
+        if (mouseX > canvas.offsetWidth - AXIS_MARGIN || mouseY > chartHeight || isDrawingAnyTool()) return;
+        const candleWidth = chart.getCandleWidth();
+        const spacing = chart.getBarSpacing();
+        const slotWidth = candleWidth + spacing;
+        const candleIndex = Math.max(0, Math.round((mouseX - view.offsetX - candleWidth / 2) / slotWidth));
+        const snappedX = candleIndex * slotWidth + view.offsetX + candleWidth / 2;
+        chart.crosshair = chart.showCrosshair ? { x: snappedX, y: mouseY, candleIndex } : null;
+    }
+
     function beginMovingLineSnapshot(line, mouseX, mouseY, chartHeight) {
         if (!line || line.type !== 'finite' || !line.start || !line.end) {
             chart.movingLineSnapshot = null;
@@ -1622,6 +1632,7 @@ export function initEvents(chart) {
                     }
                 }
             } else {
+                updateMouseCrosshair(mouseX, mouseY, height);
                 chart.selectedLineIndex = -1;
                 syncLineToolbar(chart);
                 chart.isDragging = true;
@@ -1662,6 +1673,14 @@ export function initEvents(chart) {
             chart.setAutoScaleY(true);
             chart.render();
         }
+    });
+
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        updateMouseCrosshair(mouseX, mouseY, canvas.offsetHeight - TIME_AXIS_HEIGHT);
+        chart.render();
     });
 
     canvas.addEventListener('mousemove', (e) => {

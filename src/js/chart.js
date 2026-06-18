@@ -40,6 +40,7 @@ export class Chart {
     constructor(canvas, options = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
+        this.ohlcInfo = canvas.parentElement?.querySelector('#ohlc-info') || null;
         this.dataManager = new DataManager(this);
         const themeName = CHART_THEMES[options.theme] ? options.theme : 'light';
         const theme = CHART_THEMES[themeName];
@@ -527,8 +528,80 @@ export class Chart {
         return price.toLocaleString('en-US', { maximumFractionDigits: 6 });
     }
 
+    formatOhlcValue(price) {
+        if (!Number.isFinite(price)) return '--';
+        return Math.abs(price) >= 1000
+            ? price.toLocaleString('en-US', { maximumFractionDigits: 0 })
+            : price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    createOhlcSpan(className, text) {
+        const span = document.createElement('span');
+        span.className = className;
+        span.textContent = text;
+        return span;
+    }
+
+    updateOhlcInfo(isDrawingTool) {
+        if (!this.ohlcInfo) return;
+        const candleIndex = Number.isInteger(this.crosshair?.candleIndex) ? this.crosshair.candleIndex : -1;
+        const candle = this.dataManager.data[candleIndex];
+        if (!this.showCrosshair || !this.crosshair || isDrawingTool || !candle) {
+            this.ohlcInfo.hidden = true;
+            this.ohlcInfo.replaceChildren();
+            return;
+        }
+
+        const change = candle.close - candle.open;
+        const changePercent = candle.open ? (change / candle.open) * 100 : 0;
+        const direction = change >= 0 ? 'up' : 'down';
+        const signedChange = `${change >= 0 ? '+' : ''}${this.formatOhlcValue(change)}`;
+        const signedPercent = `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
+        const isCompact = this.isCompactViewport();
+
+        this.ohlcInfo.replaceChildren(
+            this.createOhlcSpan('ohlc-label', 'O'),
+            this.createOhlcSpan(`ohlc-value ${direction}`, this.formatOhlcValue(candle.open)),
+            this.createOhlcSpan('ohlc-label', 'H'),
+            this.createOhlcSpan(`ohlc-value ${direction}`, this.formatOhlcValue(candle.high)),
+            this.createOhlcSpan('ohlc-label', 'L'),
+            this.createOhlcSpan(`ohlc-value ${direction}`, this.formatOhlcValue(candle.low)),
+            this.createOhlcSpan('ohlc-label', 'C'),
+            this.createOhlcSpan(`ohlc-value ${direction}`, this.formatOhlcValue(candle.close)),
+            this.createOhlcSpan(`ohlc-change ${direction}`, `${signedChange} (${signedPercent})`),
+        );
+        this.ohlcInfo.classList.toggle('mobile-box', isCompact);
+        if (isCompact) {
+            this.ohlcInfo.style.width = 'max-content';
+            this.ohlcInfo.style.maxWidth = 'none';
+            this.ohlcInfo.style.display = 'flex';
+            this.ohlcInfo.style.flexWrap = 'nowrap';
+            Array.from(this.ohlcInfo.children).forEach((child) => {
+                child.style.flex = '0 0 auto';
+                child.style.whiteSpace = 'nowrap';
+            });
+            const containerWidth = this.canvas.parentElement?.clientWidth || this.canvas.offsetWidth;
+            const clampedX = Math.max(10, Math.min(containerWidth - 10, this.crosshair.x));
+            this.ohlcInfo.style.left = `${clampedX}px`;
+        } else {
+            this.ohlcInfo.style.left = '';
+            this.ohlcInfo.style.width = '';
+            this.ohlcInfo.style.maxWidth = '';
+            this.ohlcInfo.style.display = '';
+            this.ohlcInfo.style.flexWrap = '';
+        }
+        this.ohlcInfo.hidden = false;
+        if (isCompact) {
+            const containerWidth = this.canvas.parentElement?.clientWidth || this.canvas.offsetWidth;
+            const halfWidth = this.ohlcInfo.offsetWidth / 2;
+            const clampedX = Math.max(halfWidth + 10, Math.min(containerWidth - halfWidth - 10, this.crosshair.x));
+            this.ohlcInfo.style.left = `${clampedX}px`;
+        }
+    }
+
     isCompactViewport() {
-        return this.canvas.offsetWidth <= 720;
+        const viewportWidth = window.innerWidth || this.canvas.offsetWidth;
+        return Math.min(this.canvas.offsetWidth, viewportWidth) <= 720;
     }
 
     getNicePriceStep(range, chartHeight) {
@@ -897,7 +970,10 @@ export class Chart {
         this.ctx.fillStyle = this.options.background;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        if (!this.dataManager.data.length) return;
+        if (!this.dataManager.data.length) {
+            this.updateOhlcInfo(false);
+            return;
+        }
 
         const width = this.canvas.offsetWidth;
         const height = this.canvas.offsetHeight;
@@ -969,5 +1045,6 @@ export class Chart {
         this.renderLastPriceMarker(chartWidth, chartHeight);
         renderLineAxisLabels(this.ctx, this.lines, this, width, height, candleWidth, spacing);
         renderCrosshairAxisLabels(this.ctx, this.crosshair, this.showCrosshair, isDrawingTool, false, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing, this);
+        this.updateOhlcInfo(isDrawingTool);
     }
 }
