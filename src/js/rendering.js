@@ -451,15 +451,14 @@ export function renderCrosshairAxisLabels(ctx, crosshair, showCrosshair, isDrawi
     const { x, y } = crosshair;
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
+    if (!Number.isFinite(y) || y < 0 || y > chartHeight) return;
     const price = yToPrice(y, chartHeight, view, options.scaleType);
     const candleIndex = Number.isInteger(crosshair.candleIndex)
         ? crosshair.candleIndex
         : Math.round((x - view.offsetX - candleWidth / 2) / (candleWidth + spacing));
     if (candleIndex < 0) return;
 
-    const priceText = price >= 1000
-        ? price.toLocaleString('en-US', { maximumFractionDigits: 0 })
-        : price.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    const priceText = formatAxisPrice(price);
     const labelHeight = 24;
     const labelWidth = AXIS_MARGIN;
     const labelY = Math.round(Math.max(1, Math.min(chartHeight - labelHeight - 1, y - labelHeight / 2)));
