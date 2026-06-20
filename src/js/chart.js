@@ -993,10 +993,24 @@ export class Chart {
             const prices = visibleData.flatMap(d => [d.high, d.low]);
             const minPrice = Math.min(...prices);
             const maxPrice = Math.max(...prices);
-            const range = maxPrice - minPrice;
-            const topPadding = range * 0.1 || 0.01;
-            const bottomPadding = range * 0.22 || 0.01;
-            this.updateScaleRanges(minPrice - bottomPadding, maxPrice + topPadding);
+            if (this.options.scaleType === 'logarithmic') {
+                const safeMinPrice = Math.max(minPrice, 1e-10);
+                const safeMaxPrice = Math.max(maxPrice, safeMinPrice * 1.0001);
+                const minLogPrice = Math.log10(safeMinPrice);
+                const maxLogPrice = Math.log10(safeMaxPrice);
+                const logRange = Math.max(maxLogPrice - minLogPrice, 1e-4);
+                const topPadding = Math.min(logRange * 0.1, 0.12);
+                const bottomPadding = Math.min(logRange * 0.22, 0.18);
+                this.updateScaleRanges(
+                    Math.pow(10, minLogPrice - bottomPadding),
+                    Math.pow(10, maxLogPrice + topPadding)
+                );
+            } else {
+                const range = maxPrice - minPrice;
+                const topPadding = range * 0.1 || 0.01;
+                const bottomPadding = range * 0.22 || 0.01;
+                this.updateScaleRanges(minPrice - bottomPadding, maxPrice + topPadding);
+            }
         } else {
             if (!this.dataManager.data.length) {
                 this.updateScaleRanges(1e-10, 100);
