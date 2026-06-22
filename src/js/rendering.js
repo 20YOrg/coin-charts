@@ -16,14 +16,16 @@ function formatFibPrice(price) {
         : price.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-function formatMeasureValue(value) {
+function formatMeasureValue(value, chart) {
+    if (chart?.formatPrice) return chart.formatPrice(value, formatMeasureValue);
     const abs = Math.abs(value);
     return abs >= 1000
         ? value.toLocaleString('en-US', { maximumFractionDigits: 0 })
         : value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-function formatAxisPrice(price) {
+function formatAxisPrice(price, chart) {
+    if (chart?.formatPrice) return chart.formatPrice(price, formatAxisPrice);
     return Math.abs(price) >= 1000
         ? price.toLocaleString('en-US', { maximumFractionDigits: 0 })
         : price.toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -47,7 +49,7 @@ function getDateForChartX(chart, x, slotWidth) {
     return chart.getDateForIndex(index);
 }
 
-function drawPriceAxisLabel(ctx, price, y, chartWidth, chartHeight) {
+function drawPriceAxisLabel(ctx, price, y, chartWidth, chartHeight, chart) {
     if (!Number.isFinite(price) || !Number.isFinite(y) || y < 0 || y > chartHeight) return;
     const labelHeight = 24;
     const labelY = Math.round(Math.max(1, Math.min(chartHeight - labelHeight - 1, y - labelHeight / 2)));
@@ -59,7 +61,7 @@ function drawPriceAxisLabel(ctx, price, y, chartWidth, chartHeight) {
     ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(formatAxisPrice(price), chartWidth + 8, labelY + labelHeight / 2);
+    ctx.fillText(formatAxisPrice(price, chart), chartWidth + 8, labelY + labelHeight / 2);
     ctx.restore();
 }
 
@@ -104,7 +106,7 @@ function renderMeasure(ctx, line, isSelected, chart, chartWidth, chartHeight, sl
     const date1 = point1.time ? new Date(`${point1.time}T00:00:00Z`) : null;
     const date2 = point2.time ? new Date(`${point2.time}T00:00:00Z`) : null;
     const days = date1 && date2 ? Math.round(Math.abs(date2 - date1) / 86400000) : bars;
-    const label = `${formatMeasureValue(delta)} (${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%)  ${bars} bars, ${days}d`;
+    const label = `${formatMeasureValue(delta, chart)} (${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%)  ${bars} bars, ${days}d`;
 
     ctx.save();
     const isPositive = delta >= 0;
@@ -342,7 +344,7 @@ function renderFibonacci(ctx, line, isSelected, chart, chartWidth, chartHeight, 
         ctx.lineTo(endX, Math.round(y) + 0.5);
         ctx.stroke();
 
-        const label = `${level.label}  ${formatFibPrice(price)}`;
+        const label = `${level.label}  ${chart.formatPrice(price, formatFibPrice)}`;
         const textX = Math.min(endX - 88, Math.max(6, startX + 6));
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.86)';
@@ -458,7 +460,7 @@ export function renderCrosshairAxisLabels(ctx, crosshair, showCrosshair, isDrawi
         : Math.round((x - view.offsetX - candleWidth / 2) / (candleWidth + spacing));
     if (candleIndex < 0) return;
 
-    const priceText = formatAxisPrice(price);
+    const priceText = formatAxisPrice(price, chart);
     const labelHeight = 24;
     const labelWidth = AXIS_MARGIN;
     const labelY = Math.round(Math.max(1, Math.min(chartHeight - labelHeight - 1, y - labelHeight / 2)));
@@ -597,7 +599,7 @@ export function renderLineAxisLabels(ctx, lines, chart, width, height, candleWid
 
         if (line.type === 'horizontal') {
             const y = priceToY(line.point1.y, chartHeight, chart.view, chart.options.scaleType);
-            drawPriceAxisLabel(ctx, line.point1.y, y, chartWidth, chartHeight);
+            drawPriceAxisLabel(ctx, line.point1.y, y, chartWidth, chartHeight, chart);
         } else if (line.type === 'vertical') {
             const x = getDrawingPointX(chart, line.point1) * slotWidth + chart.view.offsetX;
             drawTimeAxisLabel(ctx, getDateForChartX(chart, x, slotWidth), x, chartWidth, chartHeight);
@@ -611,7 +613,7 @@ export function renderLineAxisLabels(ctx, lines, chart, width, height, candleWid
 
     if (chart.isDrawingHorizontalLine && chart.snapPoint) {
         const y = priceToY(chart.snapPoint.y, chartHeight, chart.view, chart.options.scaleType);
-        drawPriceAxisLabel(ctx, chart.snapPoint.y, y, chartWidth, chartHeight);
+        drawPriceAxisLabel(ctx, chart.snapPoint.y, y, chartWidth, chartHeight, chart);
     }
 }
 

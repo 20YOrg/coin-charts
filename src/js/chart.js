@@ -60,6 +60,7 @@ export class Chart {
             handleFill: options.handleFill || theme.handleFill,
             handleStroke: options.handleStroke || theme.handleStroke,
             lastPriceColor: options.lastPriceColor || theme.lastPriceColor,
+            priceFormatter: typeof options.priceFormatter === 'function' ? options.priceFormatter : undefined,
         };
         this.view = {
             offsetX: 0,
@@ -521,18 +522,29 @@ export class Chart {
         });
     }
 
-    formatPriceLabel(price) {
+    formatPrice(price, defaultFormatter = null) {
+        if (typeof this.options.priceFormatter === 'function') {
+            return this.options.priceFormatter(price);
+        }
+        if (typeof defaultFormatter === 'function') return defaultFormatter(price);
+
         const absPrice = Math.abs(price);
         if (absPrice >= 1000) return price.toLocaleString('en-US', { maximumFractionDigits: 0 });
         if (absPrice >= 1) return price.toLocaleString('en-US', { maximumFractionDigits: 2 });
         return price.toLocaleString('en-US', { maximumFractionDigits: 6 });
     }
 
+    formatPriceLabel(price) {
+        return this.formatPrice(price);
+    }
+
     formatOhlcValue(price) {
         if (!Number.isFinite(price)) return '--';
-        return Math.abs(price) >= 1000
-            ? price.toLocaleString('en-US', { maximumFractionDigits: 0 })
-            : price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return this.formatPrice(price, (value) => (
+            Math.abs(value) >= 1000
+                ? value.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        ));
     }
 
     createOhlcSpan(className, text) {
