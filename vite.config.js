@@ -5,6 +5,6 @@ export default {
         emptyOutDir: true,
     },
     preview: {
-        allowedHosts: ['charts.20y.org'],
+        allowedHosts: true,
     },
 };
