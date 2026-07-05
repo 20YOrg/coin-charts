@@ -38,3 +38,10 @@ jobs:
           git commit -m "Update BTC-USD data"
           git push
           echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Coolify redeploy
+        if: steps.commit-data.outputs.changed == 'true'
+        run: |
+          curl -fsS \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
+            "${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}"
