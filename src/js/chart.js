@@ -230,10 +230,39 @@ export class Chart {
         this.clampOffsetX();
     }
 
+    remapDrawingPoint(point) {
+        if (!point || !point.time || !this.dataManager.data.length) return;
+        const date = parseDateUTC(point.time);
+        if (!date) return;
+        const index = this.getIndexForDate(date);
+        if (!Number.isFinite(index)) return;
+        const slotWidth = this.getSlotWidth();
+        const centerOffset = slotWidth > 0 ? this.getCandleWidth() / 2 / slotWidth : 0;
+        point.x = index + centerOffset;
+    }
+
+    remapDrawingsToInterval() {
+        this.lines.forEach(line => {
+            if (!line) return;
+            if (line.type === 'finite') {
+                this.remapDrawingPoint(line.start);
+                this.remapDrawingPoint(line.end);
+            } else if (line.type === 'horizontal' || line.type === 'vertical') {
+                this.remapDrawingPoint(line.point1);
+            } else {
+                this.remapDrawingPoint(line.point1);
+                this.remapDrawingPoint(line.point2);
+            }
+        });
+    }
+
     setCandleInterval(interval) {
         const previousTimeRange = this.view.timeRange ? { ...this.view.timeRange } : null;
+        this.lines.forEach(line => this.ensureDrawingTimes(line));
         const changed = this.dataManager.setInterval(interval);
         if (!changed) return false;
+
+        this.remapDrawingsToInterval();
 
         this.setAutoScaleY(true);
         this.view.priceStep = null;
