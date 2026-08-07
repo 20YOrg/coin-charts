@@ -150,6 +150,7 @@ export class Chart {
             }
             this.lines = saved.map(normalizeDrawing).filter(Boolean);
             this.lines.forEach(line => this.ensureDrawingTimes(line));
+            this.remapDrawingsToInterval();
             this.selectedLineIndex = -1;
             this.hoveredLineIndex = -1;
         } catch (error) {
