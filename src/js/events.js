@@ -2063,16 +2063,25 @@ export function initEvents(chart) {
     const customIntervalUnit = document.getElementById('custom-interval-unit');
     const customIntervalApply = document.getElementById('custom-interval-apply');
     if (customIntervalValue && customIntervalUnit && customIntervalApply && intervalSelect) {
-        customIntervalApply.addEventListener('click', () => {
+        customIntervalApply.addEventListener('click', async () => {
             const amount = Number.parseInt(customIntervalValue.value, 10);
             if (!Number.isFinite(amount) || amount < 1) return;
 
+            // Only adopt the interval once it actually applied. A custom sub-daily
+            // value the host cannot fetch and aggregation cannot derive (9m against
+            // 30m data) would otherwise leave a dead option selected while the
+            // chart keeps showing something else.
             const interval = `${amount}${customIntervalUnit.value}`;
+            const applied = await chart.requestInterval(interval);
+            if (!applied) {
+                intervalSelect.value = chart.dataManager.interval;
+                return;
+            }
+
             if (!Array.from(intervalSelect.options).some(option => option.value === interval)) {
                 intervalSelect.add(new Option(interval, interval));
             }
             intervalSelect.value = interval;
-            chart.requestInterval(interval);
         });
     }
 

@@ -79,6 +79,24 @@ test('loading a series selects it, discarding any earlier coarser view', () => {
     assert.equal(manager.data.length, 8, 'freshly loaded candles are shown as-is');
 });
 
+test('a custom sub-daily interval is only accepted when the base can produce it', () => {
+    const manager = new DataManager(stubChart());
+    const halfHourly = Array.from({ length: 16 }, (_, i) => ({
+        time: new Date(Date.parse('2026-08-10T00:00:00Z') + i * 1800000).toISOString().slice(0, 19) + 'Z',
+        open: 100, high: 110, low: 90, close: 105,
+    }));
+    manager.setData(halfHourly, '30m');
+
+    // 9m is neither fetchable by the host nor a multiple of the loaded 30m base.
+    assert.equal(manager.canAggregateTo('9m'), false);
+    assert.equal(manager.setInterval('9m'), false);
+    assert.equal(manager.interval, '30m', 'a rejected custom interval must not be adopted');
+
+    assert.equal(manager.canAggregateTo('2h'), true, '2h is four 30m buckets');
+    assert.equal(manager.setInterval('2h'), true);
+    assert.equal(manager.data.length, 4);
+});
+
 test('labels carry the time only when the candle has one', () => {
     assert.equal(formatDate('2026-08-13'), '2026-08-13');
     assert.equal(formatDate('2026-08-13T14:30:00Z'), '2026-08-13 14:30');
