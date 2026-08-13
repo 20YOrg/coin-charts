@@ -1,4 +1,4 @@
-import { parseDateUTC, toISODate } from './utils.js';
+import { parseDateUTC, toISODate, toIntervalKey, parseIntervalSpec } from './utils.js';
 
 export class DataManager {
     constructor(chart) {
@@ -6,37 +6,53 @@ export class DataManager {
         this.rawData = [];
         this.data = [];
         this.interval = '1D';
+        // Granularity of rawData. Aggregation can only ever coarsen, so anything
+        // finer than this has to be refetched from the data source by the host app.
+        this.baseInterval = '1D';
     }
 
-    setData(data) {
+    // Loading a series also selects it for display. Callers that want a coarser
+    // view call setInterval afterwards, so a stale selection can never silently
+    // aggregate freshly loaded data into something the caller did not ask for.
+    setData(data, baseInterval = '1D') {
+        this.baseInterval = baseInterval;
+        this.interval = baseInterval;
         this.rawData = data.filter(d => {
             const date = parseDateUTC(d.time);
             return d.time && date && !isNaN(d.open) && !isNaN(d.high) && !isNaN(d.low) && !isNaN(d.close);
         }).sort((a, b) => parseDateUTC(a.time) - parseDateUTC(b.time));
-        this.data = this.aggregateData(this.interval);
+        this.data = [...this.rawData];
         this.chart.render();
     }
 
+    // True when `interval` is at least as coarse as the loaded base data.
+    canAggregateTo(interval) {
+        const target = parseIntervalSpec(interval);
+        const base = parseIntervalSpec(this.baseInterval);
+        if (target.unit === 'M') return true;
+        if (base.unit === 'M') return false;
+        return target.ms >= base.ms;
+    }
+
     setInterval(interval) {
+        if (!this.canAggregateTo(interval)) return false;
         this.interval = interval;
         this.data = this.aggregateData(interval);
         return this.data.length > 0;
     }
 
     aggregateData(interval) {
-        if (interval === '1D') return [...this.rawData];
+        if (interval === this.baseInterval) return [...this.rawData];
 
-        const match = interval.match(/^(\d+)(D|W|M)$/);
-        if (!match) return [...this.rawData];
+        const spec = parseIntervalSpec(interval);
+        if (!this.canAggregateTo(interval)) return [...this.rawData];
 
-        const amount = Number.parseInt(match[1], 10);
-        const unit = match[2];
         const buckets = new Map();
 
         this.rawData.forEach((candle) => {
             const date = parseDateUTC(candle.time);
             if (!date) return;
-            const key = this.getBucketKey(date, amount, unit);
+            const key = this.getBucketKey(date, spec.amount, spec.unit);
             if (!buckets.has(key)) {
                 buckets.set(key, {
                     time: key,
@@ -58,6 +74,12 @@ export class DataManager {
     }
 
     getBucketKey(date, amount, unit) {
+        if (unit === 'm' || unit === 'h') {
+            const bucketMs = amount * (unit === 'm' ? 60000 : 3600000);
+            const floored = Math.floor(date.getTime() / bucketMs) * bucketMs;
+            return toIntervalKey(new Date(floored), { amount, unit, ms: bucketMs });
+        }
+
         if (unit === 'D') {
             const epochDay = Math.floor(date.getTime() / 86400000);
             const bucketDay = Math.floor(epochDay / amount) * amount;

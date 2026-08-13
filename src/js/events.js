@@ -1,5 +1,5 @@
 import { openMAModal } from './modal.js';
-import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toISODate, AXIS_MARGIN, TIME_AXIS_HEIGHT, normalizeDrawing } from './utils.js';
+import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toIntervalKey, parseIntervalSpec, isSubDailySpec, AXIS_MARGIN, TIME_AXIS_HEIGHT, normalizeDrawing } from './utils.js';
 
 function normalizeWheelDelta(delta) {
     return Math.sign(delta) * Math.min(160, Math.abs(delta));
@@ -86,7 +86,7 @@ function getSnappedDrawingPoint(chart, mouseX, mouseY, chartHeight) {
         }
     }
 
-    return { x, y: price, time: date ? toISODate(date) : undefined, source };
+    return { x, y: price, time: date ? toIntervalKey(date, chart.getIntervalSpec()) : undefined, source };
 }
 
 function getLineHandles(chart, line, chartHeight) {
@@ -858,7 +858,7 @@ export function initEvents(chart) {
         const centerOffset = slotWidth > 0 ? chart.getCandleWidth() / 2 / slotWidth : 0;
         const date = chart.getDateForIndex?.(Math.round(point.x - centerOffset));
         if (date) {
-            point.time = toISODate(date);
+            point.time = toIntervalKey(date, chart.getIntervalSpec());
         } else {
             delete point.time;
         }
@@ -2026,8 +2026,34 @@ export function initEvents(chart) {
 
     const intervalSelect = document.getElementById('interval-select');
     if (intervalSelect) {
-        intervalSelect.addEventListener('change', (e) => {
-            chart.setCandleInterval(e.target.value);
+        // Sub-daily intervals cannot be derived from the loaded series, so they are
+        // only offered when the host declares it can fetch them. Without that the
+        // control keeps exactly the options in the markup.
+        const subDaily = (chart.options.intervals || []).filter(interval => isSubDailySpec(parseIntervalSpec(interval)));
+        if (subDaily.length && typeof chart.options.onIntervalRequest === 'function') {
+            subDaily
+                .filter(interval => !Array.from(intervalSelect.options).some(option => option.value === interval))
+                .sort((a, b) => parseIntervalSpec(a).ms - parseIntervalSpec(b).ms)
+                .forEach((interval, position) => {
+                    intervalSelect.add(new Option(interval, interval), position);
+                });
+
+            const customUnit = document.getElementById('custom-interval-unit');
+            if (customUnit && !Array.from(customUnit.options).some(option => option.value === 'm')) {
+                customUnit.add(new Option('minutes', 'm'), 0);
+                customUnit.add(new Option('hours', 'h'), 1);
+            }
+        }
+
+        // Injected options sit ahead of the markup's first entry, so start from
+        // what the chart actually loaded rather than whatever is now first.
+        intervalSelect.value = chart.dataManager.interval;
+        intervalSelect.addEventListener('change', async (e) => {
+            const requested = e.target.value;
+            const applied = await chart.requestInterval(requested);
+            // Snap back when the host could not supply the finer series, so the
+            // control never claims an interval the chart is not showing.
+            if (!applied) intervalSelect.value = chart.dataManager.interval;
         });
     } else {
         console.error('interval-select element not found');
@@ -2046,7 +2072,7 @@ export function initEvents(chart) {
                 intervalSelect.add(new Option(interval, interval));
             }
             intervalSelect.value = interval;
-            chart.setCandleInterval(interval);
+            chart.requestInterval(interval);
         });
     }
 

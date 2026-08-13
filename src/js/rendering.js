@@ -1,4 +1,4 @@
-import { priceToY, yToPrice, formatDate, toISODate, getLinePoints, getDrawingPointX, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING } from './utils.js';
+import { priceToY, yToPrice, formatDate, toIntervalKey, parseDateUTC, formatDuration, getLinePoints, getDrawingPointX, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING } from './utils.js';
 
 const FIB_LEVELS = [
     { value: 0, label: '0' },
@@ -103,10 +103,10 @@ function renderMeasure(ctx, line, isSelected, chart, chartWidth, chartHeight, sl
     const delta = point2.y - point1.y;
     const percent = point1.y ? (delta / point1.y) * 100 : 0;
     const bars = Math.round(Math.abs(getDrawingPointX(chart, point2) - getDrawingPointX(chart, point1)));
-    const date1 = point1.time ? new Date(`${point1.time}T00:00:00Z`) : null;
-    const date2 = point2.time ? new Date(`${point2.time}T00:00:00Z`) : null;
-    const days = date1 && date2 ? Math.round(Math.abs(date2 - date1) / 86400000) : bars;
-    const label = `${formatMeasureValue(delta, chart)} (${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%)  ${bars} bars, ${days}d`;
+    const date1 = parseDateUTC(point1.time);
+    const date2 = parseDateUTC(point2.time);
+    const span = date1 && date2 ? formatDuration(date2 - date1) : `${bars}d`;
+    const label = `${formatMeasureValue(delta, chart)} (${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%)  ${bars} bars, ${span}`;
 
     ctx.save();
     const isPositive = delta >= 0;
@@ -474,7 +474,9 @@ export function renderCrosshairAxisLabels(ctx, crosshair, showCrosshair, isDrawi
     ctx.fillText(priceText, chartWidth + 8, labelY + labelHeight / 2);
 
     const date = chart?.getDateForIndex?.(candleIndex);
-    const timeText = data[candleIndex]?.time ? formatDate(data[candleIndex].time) : date ? formatDate(toISODate(date)) : '';
+    const timeText = data[candleIndex]?.time
+        ? formatDate(data[candleIndex].time)
+        : date ? formatDate(toIntervalKey(date, chart.getIntervalSpec())) : '';
     if (!timeText) return;
     const timeWidth = Math.max(72, ctx.measureText(timeText).width + 18);
     const timeX = Math.round(Math.max(1, Math.min(chartWidth - timeWidth - 1, x - timeWidth / 2)));

@@ -5,16 +5,79 @@ export const CANDLE_SPACING = 2;
 export const PRICE_STEPS = 5;
 const DRAWING_TYPES = ['finite', 'infinite', 'horizontal', 'vertical', 'fibonacci', 'measure'];
 
-export function parseDateUTC(dateStr) {
-    if (!dateStr || typeof dateStr !== 'string') return null;
-    const [year, month, day] = dateStr.split('-').map(Number);
-    if (!year || !month || !day) return null;
-    const date = new Date(Date.UTC(year, month - 1, day));
+export const DAY_MS = 86400000;
+
+const INTERVAL_UNIT_MS = {
+    m: 60000,
+    h: 3600000,
+    D: DAY_MS,
+    W: 7 * DAY_MS,
+};
+
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
+const HAS_ZONE_PATTERN = /[Zz]$|[+-]\d{2}:?\d{2}$/;
+
+// Accepts "YYYY-MM-DD", an ISO datetime ("YYYY-MM-DDTHH:MM:SSZ"), a Date, or epoch ms.
+// Naive datetimes are read as UTC so sub-daily candles never shift with the viewer's zone.
+export function parseDateUTC(value) {
+    if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        const date = new Date(value);
+        return isNaN(date.getTime()) ? null : date;
+    }
+    if (!value || typeof value !== 'string') return null;
+
+    const dateOnly = DATE_ONLY_PATTERN.exec(value);
+    if (dateOnly) {
+        const [, year, month, day] = dateOnly.map(Number);
+        if (!year || !month || !day) return null;
+        const date = new Date(Date.UTC(year, month - 1, day));
+        return isNaN(date.getTime()) ? null : date;
+    }
+
+    const date = new Date(HAS_ZONE_PATTERN.test(value) ? value : `${value}Z`);
     return isNaN(date.getTime()) ? null : date;
 }
 
 export function toISODate(date) {
     return date.toISOString().split('T')[0];
+}
+
+export function toISOTime(date) {
+    return `${date.toISOString().slice(0, 19)}Z`;
+}
+
+// Months are calendar-based, so they carry no fixed `ms`; every other unit does.
+export function parseIntervalSpec(interval) {
+    const match = /^(\d+)(m|h|D|W|M)$/.exec(typeof interval === 'string' ? interval : '');
+    if (!match) return { amount: 1, unit: 'D', ms: DAY_MS };
+
+    const amount = Number.parseInt(match[1], 10);
+    const unit = match[2];
+    if (!amount) return { amount: 1, unit: 'D', ms: DAY_MS };
+
+    const unitMs = INTERVAL_UNIT_MS[unit];
+    return { amount, unit, ms: unitMs ? amount * unitMs : null };
+}
+
+export function isSubDailySpec(spec) {
+    return Boolean(spec) && spec.ms !== null && spec.ms < DAY_MS;
+}
+
+// Sub-daily buckets need the time-of-day preserved in the key; daily and coarser do not.
+export function toIntervalKey(date, spec) {
+    return isSubDailySpec(spec) ? toISOTime(date) : toISODate(date);
+}
+
+export function formatDuration(ms) {
+    const absolute = Math.abs(ms);
+    if (absolute >= DAY_MS) return `${Math.round(absolute / DAY_MS)}d`;
+    if (absolute >= 3600000) return `${Math.round(absolute / 3600000)}h`;
+    return `${Math.max(1, Math.round(absolute / 60000))}m`;
+}
+
+export function formatTimeOfDay(date) {
+    return `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
 }
 
 export function addMonthsClamped(date, monthDelta) {
@@ -255,8 +318,11 @@ export function yToPrice(y, height, view, scaleType) {
 
 export function formatDate(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return '';
-    const date = new Date(dateStr);
-    return isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
+    const date = parseDateUTC(dateStr);
+    if (!date) return '';
+    return DATE_ONLY_PATTERN.test(dateStr)
+        ? toISODate(date)
+        : `${toISODate(date)} ${formatTimeOfDay(date)}`;
 }
 
 export function debounce(func, wait) {

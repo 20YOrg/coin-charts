@@ -2,7 +2,7 @@ import { DataManager } from './data-manager.js';
 import { initEvents } from './events.js';
 import { renderGrid, renderCandles, renderCrosshair, renderCrosshairAxisLabels, renderDrawingFeedback, renderLines, renderLineAxisLabels } from './rendering.js';
 import { renderIndicators } from './indicators.js';
-import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, addMonthsClamped, generateMonthTicks, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING, normalizeDrawing } from './utils.js';
+import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, toIntervalKey, addMonthsClamped, generateMonthTicks, parseIntervalSpec, isSubDailySpec, formatTimeOfDay, DAY_MS, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING, normalizeDrawing } from './utils.js';
 
 const DRAWINGS_STORAGE_KEY = 'coin-charts:btc-usd:drawings:v1';
 const CHART_THEMES = {
@@ -61,6 +61,8 @@ export class Chart {
             handleStroke: options.handleStroke || theme.handleStroke,
             lastPriceColor: options.lastPriceColor || theme.lastPriceColor,
             priceFormatter: typeof options.priceFormatter === 'function' ? options.priceFormatter : undefined,
+            onIntervalRequest: typeof options.onIntervalRequest === 'function' ? options.onIntervalRequest : undefined,
+            intervals: Array.isArray(options.intervals) ? options.intervals : undefined,
         };
         this.view = {
             offsetX: 0,
@@ -111,11 +113,25 @@ export class Chart {
         this.drawingsReady = false;
 
         this.resize();
-        this.dataManager.setData(options.data || []);
+        this.dataManager.setData(options.data || [], options.interval || '1D');
         this.loadDrawings();
         initEvents(this);
         this.scrollToLatest();
         this.render();
+    }
+
+    // Swap in a fresh series. `baseInterval` declares the granularity of `data`,
+    // which is what the host must call when it refetches at a finer interval.
+    setData(data, baseInterval = '1D') {
+        this.lines.forEach(line => this.ensureDrawingTimes(line));
+        this.dataManager.setData(data, baseInterval);
+        this.remapDrawingsToInterval();
+        this.setAutoScaleY(true);
+        this.view.priceStep = null;
+        this.view.timeRange = null;
+        this.scrollToLatest();
+        this.render();
+        return this.dataManager.data.length > 0;
     }
 
     setTheme(themeName) {
@@ -165,7 +181,7 @@ export class Chart {
         const slotWidth = this.getSlotWidth();
         const centerOffset = slotWidth > 0 ? this.getCandleWidth() / 2 / slotWidth : 0;
         const date = this.getDateForIndex(Math.round(point.x - centerOffset));
-        if (date) point.time = toISODate(date);
+        if (date) point.time = toIntervalKey(date, this.getIntervalSpec());
     }
 
     ensureDrawingTimes(line) {
@@ -255,6 +271,29 @@ export class Chart {
                 this.remapDrawingPoint(line.point2);
             }
         });
+    }
+
+    // Entry point for interval changes driven by the UI.
+    //
+    // The host gets first refusal: intervals it can fetch natively come back as a
+    // fresh series, so switching back to a coarse interval restores that interval's
+    // full history instead of re-aggregating whatever narrow window is loaded.
+    // Returning null falls through to local aggregation, which is all a purely
+    // derived interval (3D, 1W, 1M) needs.
+    async requestInterval(interval) {
+        const fetchData = this.options.onIntervalRequest;
+        if (typeof fetchData === 'function') {
+            const data = await fetchData(interval);
+            if (Array.isArray(data) && data.length > 0) {
+                return this.setData(data, interval);
+            }
+        }
+
+        if (this.dataManager.canAggregateTo(interval)) {
+            return this.setCandleInterval(interval);
+        }
+
+        return false;
     }
 
     setCandleInterval(interval) {
@@ -749,27 +788,22 @@ export class Chart {
     }
 
     getIntervalSpec() {
-        const match = this.dataManager.interval.match(/^(\d+)(D|W|M)$/);
-        if (!match) return { amount: 1, unit: 'D' };
-        return { amount: Number.parseInt(match[1], 10), unit: match[2] };
+        return parseIntervalSpec(this.dataManager.interval);
     }
 
     getDateForIndex(index) {
         const data = this.dataManager.data;
         if (!data.length) return null;
 
-        const { amount, unit } = this.getIntervalSpec();
+        const spec = this.getIntervalSpec();
         const anchorDate = parseDateUTC(data[0].time);
         if (!anchorDate) return null;
 
-        if (unit === 'M') {
-            return addMonthsClamped(anchorDate, index * amount);
+        if (spec.unit === 'M') {
+            return addMonthsClamped(anchorDate, index * spec.amount);
         }
 
-        const dayMultiplier = unit === 'W' ? 7 : 1;
-        const nextDate = new Date(anchorDate.getTime());
-        nextDate.setUTCDate(nextDate.getUTCDate() + index * amount * dayMultiplier);
-        return nextDate;
+        return new Date(anchorDate.getTime() + index * spec.ms);
     }
 
     getIndexForDate(date) {
@@ -779,17 +813,15 @@ export class Chart {
         const firstDate = parseDateUTC(data[0].time);
         if (!firstDate) return -1;
 
-        const { amount, unit } = this.getIntervalSpec();
-        if (unit === 'M') {
+        const spec = this.getIntervalSpec();
+        if (spec.unit === 'M') {
             const monthDelta = (date.getUTCFullYear() - firstDate.getUTCFullYear()) * 12
                 + date.getUTCMonth()
                 - firstDate.getUTCMonth();
-            return Math.round(monthDelta / amount);
+            return Math.round(monthDelta / spec.amount);
         }
 
-        const dayMultiplier = unit === 'W' ? 7 : 1;
-        const intervalMs = amount * dayMultiplier * 86400000;
-        return Math.round((date - firstDate) / intervalMs);
+        return Math.round((date - firstDate) / spec.ms);
     }
 
     getCalendarTimeTicks(startIndex, endIndex, candleWidth, spacing, chartWidth) {
@@ -825,6 +857,33 @@ export class Chart {
         );
         const minTimeLabelSpacing = this.isCompactViewport() ? 84 : 64;
         const maxTimeTicks = Math.max(2, Math.floor(chartWidth / minTimeLabelSpacing));
+
+        // Sub-daily data spanning a few days needs time-of-day ticks; the day/month
+        // branches below can only ever step one whole day at a time.
+        const spec = this.getIntervalSpec();
+        if (isSubDailySpec(spec) && spanDays <= 6) {
+            const stepCandidates = [1, 2, 5, 15, 30, 60, 120, 240, 360, 720]
+                .map(minutes => minutes * 60000)
+                .filter(stepMs => stepMs >= spec.ms);
+            const totalMs = Math.max(1, endDate - startDate);
+            const stepMs = stepCandidates.find(candidate => Math.ceil(totalMs / candidate) <= maxTimeTicks)
+                || DAY_MS;
+
+            const cursor = new Date(Math.floor(startDate.getTime() / stepMs) * stepMs);
+            let lastTickDayKey = null;
+            while (cursor <= endDate) {
+                const dayKey = toISODate(cursor);
+                const isNewDay = dayKey !== lastTickDayKey && cursor.getUTCHours() === 0 && cursor.getUTCMinutes() === 0;
+                const label = isNewDay
+                    ? `${monthNames[cursor.getUTCMonth()]} ${cursor.getUTCDate()}`
+                    : formatTimeOfDay(cursor);
+                addTick(new Date(cursor), label, isNewDay);
+                if (isNewDay) lastTickDayKey = dayKey;
+                cursor.setTime(cursor.getTime() + stepMs);
+            }
+
+            return ticks;
+        }
 
         if (spanDays > 120) {
             const monthIntervals = spanDays > 365 * 3
