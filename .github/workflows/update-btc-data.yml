@@ -41,12 +41,24 @@ jobs:
 
       - name: Trigger Coolify redeploy
         if: steps.commit-data.outputs.changed == 'true'
+        env:
+          DEPLOY_URL: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+          API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
         run: |
-          curl -fsS \
+          code=$(curl -sS \
+            -X POST \
             --connect-timeout 10 \
             --max-time 30 \
             --retry 3 \
             --retry-delay 5 \
             --retry-connrefused \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
-            "${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}"
+            -o /tmp/deploy-body.txt \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer $API_TOKEN" \
+            "$DEPLOY_URL")
+
+          echo "Coolify responded with HTTP $code"
+          head -c 2000 /tmp/deploy-body.txt
+          echo
+
+          test "$code" -ge 200 && test "$code" -lt 300
