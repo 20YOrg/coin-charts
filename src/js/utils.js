@@ -5,6 +5,32 @@ export const CANDLE_SPACING = 2;
 export const PRICE_STEPS = 5;
 const DRAWING_TYPES = ['finite', 'infinite', 'horizontal', 'vertical', 'fibonacci', 'measure'];
 
+// An alarm is not its own drawing type: it is a horizontal line carrying an extra
+// `alarm` field, so every geometry path (time anchoring, interval remapping, hit
+// testing, dragging, axis labels) keeps working untouched.
+export const ALARM_DIRECTIONS = ['above', 'below'];
+export const ALARM_STATES = ['armed', 'triggered', 'paused'];
+
+export function createAlarmId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return `alarm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// `important` is just a user-set mark that travels with the line. The library never
+// maps it to a sound; the host decides what an important alarm sounds like.
+function normalizeAlarm(alarm) {
+    if (!alarm || typeof alarm !== 'object') return null;
+    if (!ALARM_DIRECTIONS.includes(alarm.direction)) return null;
+    return {
+        id: typeof alarm.id === 'string' && alarm.id ? alarm.id : createAlarmId(),
+        direction: alarm.direction,
+        state: ALARM_STATES.includes(alarm.state) ? alarm.state : 'armed',
+        important: Boolean(alarm.important),
+    };
+}
+
 export const DAY_MS = 86400000;
 
 const INTERVAL_UNIT_MS = {
@@ -159,6 +185,8 @@ export function normalizeDrawing(line) {
         textOffsetX: Number.isFinite(line.textOffsetX) ? Math.max(-240, Math.min(240, line.textOffsetX)) : 0,
         textOffsetY: Number.isFinite(line.textOffsetY) ? Math.max(-180, Math.min(180, line.textOffsetY)) : 0,
         locked: Boolean(line.locked),
+        // Only horizontal lines can carry an alarm; anything else drops it.
+        alarm: inferredType === 'horizontal' ? normalizeAlarm(line.alarm) : null,
     };
 
     if (inferredType === 'finite' && isValidDrawingPoint(line.start) && isValidDrawingPoint(line.end)) {

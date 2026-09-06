@@ -1,5 +1,140 @@
 import { priceToY, yToPrice, formatDate, toIntervalKey, parseDateUTC, formatDuration, getLinePoints, getDrawingPointX, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING } from './utils.js';
 
+// Amber, not red/green: those already mean candle up/down, and reusing them makes
+// the chart harder to read. Colour says "this is an alarm"; the arrow says which way.
+const ALARM_COLOR = '#f59e0b';
+const ALARM_TRIGGERED_COLOR = '#6b7280';
+
+function alarmColor(alarm) {
+    return alarm?.state === 'triggered' ? ALARM_TRIGGERED_COLOR : ALARM_COLOR;
+}
+
+// Bell drawn in a ~12x12 box centred on (cx, cy), then scaled.
+function drawBellGlyph(ctx, cx, cy, color, scale = 1, filled = true) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(-3.9, 2.6);
+    ctx.lineTo(-2.5, 0.8);
+    ctx.lineTo(-2.5, -1.2);
+    ctx.arc(0, -1.2, 2.5, Math.PI, 0);
+    ctx.lineTo(2.5, 0.8);
+    ctx.lineTo(3.9, 2.6);
+    ctx.closePath();
+    if (filled) ctx.fill();
+    else ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(0, 2.6, 1.3, Math.PI * 0.12, Math.PI * 0.88);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawBellSlash(ctx, cx, cy, color, scale = 1) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.4 * scale;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - 4.6 * scale, cy + 4.6 * scale);
+    ctx.lineTo(cx + 4.6 * scale, cy - 4.6 * scale);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawAlarmCheck(ctx, cx, cy, color, scale = 1) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5 * scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - 2.6 * scale, cy);
+    ctx.lineTo(cx - 0.6 * scale, cy + 2.1 * scale);
+    ctx.lineTo(cx + 2.8 * scale, cy - 2.3 * scale);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawAlarmArrow(ctx, cx, cy, direction, color, scale = 1) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    if (direction === 'below') {
+        ctx.moveTo(cx - 3.2 * scale, cy - 2 * scale);
+        ctx.lineTo(cx + 3.2 * scale, cy - 2 * scale);
+        ctx.lineTo(cx, cy + 3.2 * scale);
+    } else {
+        ctx.moveTo(cx - 3.2 * scale, cy + 2 * scale);
+        ctx.lineTo(cx + 3.2 * scale, cy + 2 * scale);
+        ctx.lineTo(cx, cy - 3.2 * scale);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+}
+
+function drawStarGlyph(ctx, cx, cy, radius, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+        const r = i % 2 === 0 ? radius : radius * 0.45;
+        const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+}
+
+// The small round bell marker sitting on the line, at the price-axis end.
+function drawAlarmBadge(ctx, x, y, alarm, background) {
+    const color = alarmColor(alarm);
+    ctx.save();
+    if (alarm.state === 'paused') ctx.globalAlpha = 0.5;
+    ctx.setLineDash([]);
+    ctx.fillStyle = background;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    drawBellGlyph(ctx, x, y - 0.5, color, 1, alarm.state !== 'triggered');
+    if (alarm.state === 'paused') drawBellSlash(ctx, x, y - 0.5, color, 1);
+    if (alarm.state === 'triggered') drawAlarmCheck(ctx, x - 13, y, color, 1.1);
+    if (alarm.important) {
+        // Sits on the badge's shoulder, on its own disc so it reads over the line.
+        ctx.fillStyle = background;
+        ctx.beginPath();
+        ctx.arc(x + 7, y - 7, 5.4, 0, Math.PI * 2);
+        ctx.fill();
+        drawStarGlyph(ctx, x + 7, y - 7, 4.8, color);
+    }
+    ctx.restore();
+}
+
+// State is expressed on the stroke itself so the halo, handles and text inherit it.
+function applyAlarmLineState(ctx, line, alarm) {
+    if (alarm.state === 'triggered') {
+        ctx.strokeStyle = ALARM_TRIGGERED_COLOR;
+        ctx.lineWidth = Math.max(1, (line.width || 2) - 1);
+    } else if (alarm.state === 'paused') {
+        ctx.globalAlpha = 0.5;
+    }
+}
+
 const FIB_LEVELS = [
     { value: 0, label: '0' },
     { value: 0.236, label: '0.236' },
@@ -49,10 +184,32 @@ function getDateForChartX(chart, x, slotWidth) {
     return chart.getDateForIndex(index);
 }
 
-function drawPriceAxisLabel(ctx, price, y, chartWidth, chartHeight, chart) {
+// The price axis is where the eye already is, so this label carries the whole
+// identity of an alarm: amber pill, bell, direction arrow, price.
+function drawPriceAxisLabel(ctx, price, y, chartWidth, chartHeight, chart, alarm = null) {
     if (!Number.isFinite(price) || !Number.isFinite(y) || y < 0 || y > chartHeight) return;
     const labelHeight = 24;
     const labelY = Math.round(Math.max(1, Math.min(chartHeight - labelHeight - 1, y - labelHeight / 2)));
+
+    if (alarm) {
+        const triggered = alarm.state === 'triggered';
+        const foreground = triggered ? '#ffffff' : '#1f2430';
+        const centerY = labelY + labelHeight / 2;
+        ctx.save();
+        if (alarm.state === 'paused') ctx.globalAlpha = 0.5;
+        ctx.fillStyle = triggered ? ALARM_TRIGGERED_COLOR : ALARM_COLOR;
+        ctx.fillRect(chartWidth, labelY, AXIS_MARGIN, labelHeight);
+        drawBellGlyph(ctx, chartWidth + 9, centerY, foreground, 0.85, !triggered);
+        if (alarm.state === 'paused') drawBellSlash(ctx, chartWidth + 9, centerY, foreground, 0.85);
+        drawAlarmArrow(ctx, chartWidth + 19, centerY, alarm.direction, foreground, 0.95);
+        ctx.fillStyle = foreground;
+        ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(formatAxisPrice(price, chart), chartWidth + 25, centerY);
+        ctx.restore();
+        return;
+    }
 
     ctx.save();
     ctx.fillStyle = ctx.chartOptions?.axisLabelBackground || '#131722';
@@ -251,8 +408,10 @@ function renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, s
     const lineIndex = chart.lines.indexOf(line);
     const isHovered = lineIndex === chart.hoveredLineIndex;
     const isDragging = isSelected && (chart.isMovingLine || chart.activeLineHandle);
+    const alarm = line.type === 'horizontal' ? line.alarm : null;
     ctx.save();
     applyLineStyle(ctx, line);
+    if (alarm) applyAlarmLineState(ctx, line, alarm);
     ctx.beginPath();
     if (line.type === 'horizontal') {
         const y = priceToY(point.y, chartHeight, chart.view, chart.options.scaleType);
@@ -283,6 +442,9 @@ function renderAxisLine(ctx, line, isSelected, chart, chartWidth, chartHeight, s
             }
     ctx.stroke();
     ctx.setLineDash([]);
+    if (alarm && handlePoint) {
+        drawAlarmBadge(ctx, chartWidth - 14, handlePoint.y, alarm, chart.options.background);
+    }
     if (isSelected && handlePoint) {
         ctx.fillStyle = chart.options.handleFill;
         ctx.strokeStyle = chart.options.handleStroke;
@@ -601,7 +763,7 @@ export function renderLineAxisLabels(ctx, lines, chart, width, height, candleWid
 
         if (line.type === 'horizontal') {
             const y = priceToY(line.point1.y, chartHeight, chart.view, chart.options.scaleType);
-            drawPriceAxisLabel(ctx, line.point1.y, y, chartWidth, chartHeight, chart);
+            drawPriceAxisLabel(ctx, line.point1.y, y, chartWidth, chartHeight, chart, line.alarm || null);
         } else if (line.type === 'vertical') {
             const x = getDrawingPointX(chart, line.point1) * slotWidth + chart.view.offsetX;
             drawTimeAxisLabel(ctx, getDateForChartX(chart, x, slotWidth), x, chartWidth, chartHeight);
@@ -613,14 +775,25 @@ export function renderLineAxisLabels(ctx, lines, chart, width, height, candleWid
         drawTimeAxisLabel(ctx, getDateForChartX(chart, x, slotWidth), x, chartWidth, chartHeight);
     }
 
-    if (chart.isDrawingHorizontalLine && chart.snapPoint) {
+    if ((chart.isDrawingHorizontalLine || chart.isDrawingAlarm) && chart.snapPoint) {
         const y = priceToY(chart.snapPoint.y, chartHeight, chart.view, chart.options.scaleType);
-        drawPriceAxisLabel(ctx, chart.snapPoint.y, y, chartWidth, chartHeight, chart);
+        drawPriceAxisLabel(ctx, chart.snapPoint.y, y, chartWidth, chartHeight, chart, previewAlarm(chart));
     }
 }
 
+// Direction is shown while previewing, so you know which alarm you are about to
+// place before you commit to it rather than checking afterwards.
+function previewAlarm(chart) {
+    if (!chart.isDrawingAlarm || !chart.snapPoint) return null;
+    return {
+        id: 'preview',
+        direction: chart.getAlarmDirectionForPrice(chart.snapPoint.y),
+        state: 'armed',
+    };
+}
+
 export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, spacing) {
-    if (!chart.snapPoint || (!chart.isDrawingLine && !chart.isDrawingInfiniteLine && !chart.isDrawingHorizontalLine && !chart.isDrawingVerticalLine && !chart.isDrawingFibonacci && !chart.isDrawingMeasure)) return;
+    if (!chart.snapPoint || (!chart.isDrawingLine && !chart.isDrawingInfiniteLine && !chart.isDrawingHorizontalLine && !chart.isDrawingVerticalLine && !chart.isDrawingFibonacci && !chart.isDrawingMeasure && !chart.isDrawingAlarm)) return;
 
     const chartHeight = height - TIME_AXIS_HEIGHT;
     const chartWidth = width - AXIS_MARGIN;
@@ -694,22 +867,27 @@ export function renderDrawingFeedback(ctx, chart, width, height, candleWidth, sp
             drawStepBadge(ctx, snapX, snapY, '2');
             drawTinyStatusLabel(ctx, snapX, snapY, 'Set second point', chartWidth, chartHeight);
         }
-    } else if (!(chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine)) {
+    } else if (!(chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine || chart.isDrawingAlarm)) {
         drawTinyStatusLabel(ctx, snapX, snapY, 'Set first point', chartWidth, chartHeight);
     }
 
-    if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine) {
+    if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine || chart.isDrawingAlarm) {
+        const alarm = previewAlarm(chart);
         ctx.setLineDash([4, 4]);
         renderAxisLine(ctx, {
-            type: chart.isDrawingHorizontalLine ? 'horizontal' : 'vertical',
+            type: chart.isDrawingVerticalLine ? 'vertical' : 'horizontal',
             scaleType: chart.options.scaleType,
             point1: { ...chart.snapPoint },
-            color: '#2962ff',
+            color: alarm ? ALARM_COLOR : '#2962ff',
             width: 2,
-            style: 'solid',
+            style: alarm ? 'dashed' : 'solid',
+            alarm,
         }, true, chart, chartWidth, chartHeight, slotWidth);
         ctx.setLineDash([]);
-        drawTinyStatusLabel(ctx, snapX, snapY, chart.isDrawingHorizontalLine ? 'Place horizontal line' : 'Place vertical line', chartWidth, chartHeight);
+        const status = alarm
+            ? `Set alarm ${alarm.direction === 'above' ? '\u2191' : '\u2193'}`
+            : chart.isDrawingHorizontalLine ? 'Place horizontal line' : 'Place vertical line';
+        drawTinyStatusLabel(ctx, snapX, snapY, status, chartWidth, chartHeight);
     }
 
     if (snapX >= 0 && snapX <= chartWidth && snapY >= 0 && snapY <= chartHeight) {

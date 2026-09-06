@@ -138,6 +138,38 @@
     color: var(--tv-muted);
 }
 
+/* `#line-toolbar button` sets an explicit display, which otherwise beats [hidden]. */
+#line-toolbar [hidden] {
+    display: none !important;
+}
+
+#line-alarm-important,
+#line-alarm-direction,
+#line-alarm-pause {
+    color: var(--tv-alarm, #f59e0b);
+}
+
+/* Filled star reads as "starred" at a glance; outline means not marked. */
+#line-alarm-important.active svg {
+    fill: currentColor;
+}
+
+#line-alarm-important:hover,
+#line-alarm-important.active,
+#line-alarm-direction:hover,
+#line-alarm-pause:hover,
+#line-alarm-pause.active {
+    background: var(--tv-hover);
+    color: var(--tv-alarm, #f59e0b);
+}
+
+.alarm-direction-icon {
+    display: inline-block;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+}
+
 #line-toolbar svg {
     display: block;
     fill: none;

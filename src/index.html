@@ -77,6 +77,13 @@
                     <circle cx="9" cy="9" r="2" />
                 </svg>
             </button>
+            <button id="tool-alarm" title="Price Alarm" aria-label="Price Alarm">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M4.6 12.5h8.8c-1 -1.1 -1.4 -2 -1.4 -3.6V7.9a3.4 3.4 0 0 0 -6 -2.2" />
+                    <path d="M6 6.4V8.9c0 1.6 -0.4 2.5 -1.4 3.6" />
+                    <path d="M7.5 14.4a1.7 1.7 0 0 0 3 0" />
+                </svg>
+            </button>
             <button id="tool-vertical-line" title="Vertical Line" aria-label="Vertical Line">
                 <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
                     <path d="M9 3v12" />
@@ -231,6 +238,21 @@
                     <rect x="4.5" y="5.5" width="9" height="9.5" rx="1.5" />
                     <path d="M7 9h4" />
                     <path d="M7 12h3" />
+                </svg>
+            </button>
+            <div class="line-toolbar-divider alarm-control" aria-hidden="true" hidden></div>
+            <button id="line-alarm-important" class="alarm-control" type="button" title="Mark as important" aria-label="Mark as important" hidden>
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M9 3.2l1.8 3.7 4.1.6-3 2.9.7 4.1L9 12.6l-3.6 1.9.7-4.1-3-2.9 4.1-.6z" />
+                </svg>
+            </button>
+            <button id="line-alarm-direction" class="alarm-control" type="button" title="Alarm direction" aria-label="Alarm direction" hidden>
+                <span id="line-alarm-direction-icon" class="alarm-direction-icon" aria-hidden="true">&#8593;</span>
+            </button>
+            <button id="line-alarm-pause" class="alarm-control" type="button" title="Pause alarm" aria-label="Pause alarm" hidden>
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M6.5 4.5v9" />
+                    <path d="M11.5 4.5v9" />
                 </svg>
             </button>
             <button id="line-lock" type="button" title="Lock line" aria-label="Lock line">
