@@ -1,5 +1,22 @@
 import { openMAModal } from './modal.js';
-import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toIntervalKey, parseIntervalSpec, isSubDailySpec, AXIS_MARGIN, TIME_AXIS_HEIGHT, normalizeDrawing } from './utils.js';
+import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toIntervalKey, parseIntervalSpec, isSubDailySpec, AXIS_MARGIN, TIME_AXIS_HEIGHT, normalizeDrawing, createAlarmId } from './utils.js';
+
+const ALARM_LINE_COLOR = '#f59e0b';
+
+// Amber + dashed is written onto the line at creation time rather than forced at
+// render time, so a user who later recolours it keeps their choice.
+function buildAlarmLine(chart, point) {
+    return {
+        color: ALARM_LINE_COLOR,
+        style: 'dashed',
+        alarm: {
+            id: createAlarmId(),
+            direction: chart.getAlarmDirectionForPrice(point?.y),
+            state: 'armed',
+            important: false,
+        },
+    };
+}
 
 function normalizeWheelDelta(delta) {
     return Math.sign(delta) * Math.min(160, Math.abs(delta));
@@ -174,9 +191,43 @@ function pushDrawingHistory(chart, state = captureDrawingState(chart)) {
     updateUndoButton(chart);
 }
 
+// Detached copies: undo replaces every line object, so holding live references here
+// would leave nothing to report a deletion with.
+function snapshotAlarms(chart) {
+    const alarms = new Map();
+    chart.lines.forEach((line) => {
+        if (!line?.alarm?.id) return;
+        alarms.set(line.alarm.id, { alarm: { ...line.alarm }, point1: { y: line.point1?.y } });
+    });
+    return alarms;
+}
+
+// Reuses the existing create/move/update/delete vocabulary so a host that already
+// handles those needs no new code path for undo.
+function emitAlarmDiff(chart, before, after) {
+    before.forEach((entry, id) => {
+        if (!after.has(id)) chart.emitAlarmChange('delete', entry);
+    });
+    after.forEach((entry, id) => {
+        const previous = before.get(id);
+        if (!previous) {
+            chart.emitAlarmChange('create', entry);
+            return;
+        }
+        if (previous.point1.y !== entry.point1.y) {
+            chart.emitAlarmChange('move', entry);
+        } else if (previous.alarm.direction !== entry.alarm.direction
+            || previous.alarm.state !== entry.alarm.state
+            || previous.alarm.important !== entry.alarm.important) {
+            chart.emitAlarmChange('update', entry);
+        }
+    });
+}
+
 function undoDrawingChange(chart) {
     const previous = chart.drawingHistory?.pop();
     if (!previous) return false;
+    const alarmsBefore = snapshotAlarms(chart);
     chart.lines.length = 0;
     previous.lines.forEach((line) => {
         const drawing = cloneDrawing(line);
@@ -191,6 +242,7 @@ function undoDrawingChange(chart) {
     syncLineToolbar(chart);
     updateUndoButton(chart);
     chart.render();
+    emitAlarmDiff(chart, alarmsBefore, snapshotAlarms(chart));
     return true;
 }
 
@@ -206,6 +258,9 @@ function markDrawingDragChanged(chart) {
 function finishDrawingDragHistory(chart) {
     if (chart.drawingDragSnapshot && chart.drawingDragChanged) {
         pushDrawingHistory(chart, chart.drawingDragSnapshot);
+        // Once per drag, not once per frame.
+        const dragged = selectedLine(chart);
+        if (dragged?.alarm) chart.emitAlarmChange('move', dragged);
     }
     chart.drawingDragSnapshot = null;
     chart.drawingDragChanged = false;
@@ -244,6 +299,34 @@ function syncLineToolbar(chart) {
     document.getElementById('line-text-bold')?.classList.toggle('active', !!line.textBold);
     document.getElementById('line-lock')?.classList.toggle('active', !!line.locked);
     document.getElementById('line-more-lock')?.classList.toggle('active', !!line.locked);
+    syncAlarmControls(line);
+}
+
+function syncAlarmControls(line) {
+    const alarm = line?.alarm || null;
+    document.querySelectorAll('#line-toolbar .alarm-control').forEach((element) => {
+        element.hidden = !alarm;
+    });
+    if (!alarm) return;
+
+    const isUp = alarm.direction === 'above';
+    const directionButton = document.getElementById('line-alarm-direction');
+    if (directionButton) {
+        directionButton.title = isUp ? 'Alarm when price rises to this level' : 'Alarm when price falls to this level';
+        directionButton.setAttribute('aria-label', directionButton.title);
+    }
+    document.getElementById('line-alarm-direction-icon')
+        ?.replaceChildren(document.createTextNode(isUp ? '\u2191' : '\u2193'));
+
+    document.getElementById('line-alarm-important')?.classList.toggle('active', !!alarm.important);
+
+    const pauseButton = document.getElementById('line-alarm-pause');
+    if (pauseButton) {
+        const isPaused = alarm.state === 'paused';
+        pauseButton.classList.toggle('active', isPaused);
+        pauseButton.title = isPaused ? 'Resume alarm' : 'Pause alarm';
+        pauseButton.setAttribute('aria-label', pauseButton.title);
+    }
 }
 
 function mutateSelectedLine(chart, updater) {
@@ -256,10 +339,18 @@ function mutateSelectedLine(chart, updater) {
     chart.render();
 }
 
+function mutateSelectedAlarm(chart, updater) {
+    const line = selectedLine(chart);
+    if (!line?.alarm) return;
+    mutateSelectedLine(chart, target => updater(target.alarm, target));
+    chart.emitAlarmChange('update', line);
+}
+
 function deleteSelectedLine(chart) {
     if (chart.selectedLineIndex === -1) return;
     const before = captureDrawingState(chart);
-    chart.lines.splice(chart.selectedLineIndex, 1);
+    const [removed] = chart.lines.splice(chart.selectedLineIndex, 1);
+    if (removed?.alarm) chart.emitAlarmChange('delete', removed);
     pushDrawingHistory(chart, before);
     chart.selectedLineIndex = -1;
     chart.activeLineHandle = null;
@@ -752,7 +843,7 @@ export function initEvents(chart) {
     }
 
     function isDrawingAnyTool() {
-        return chart.isDrawingLine || chart.isDrawingInfiniteLine || chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine || chart.isDrawingFibonacci || chart.isDrawingMeasure;
+        return chart.isDrawingLine || chart.isDrawingInfiniteLine || chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine || chart.isDrawingFibonacci || chart.isDrawingMeasure || chart.isDrawingAlarm;
     }
 
     function deactivateDrawingButtons() {
@@ -762,6 +853,7 @@ export function initEvents(chart) {
         document.getElementById('tool-vertical-line')?.classList.remove('active');
         document.getElementById('tool-fibonacci')?.classList.remove('active');
         document.getElementById('tool-measure')?.classList.remove('active');
+        document.getElementById('tool-alarm')?.classList.remove('active');
     }
 
     function getAxisLineHit(chart, line, mouseX, mouseY, width, chartHeight) {
@@ -920,8 +1012,14 @@ export function initEvents(chart) {
             return;
         }
         offsetDrawingObject(pastedLine, canvas.offsetHeight - TIME_AXIS_HEIGHT);
+        // A pasted alarm is a separate alarm: fresh id, and armed again even if the
+        // one it was copied from had already fired.
+        if (pastedLine.alarm) {
+            pastedLine.alarm = { ...pastedLine.alarm, id: createAlarmId(), state: 'armed' };
+        }
         lines.push(pastedLine);
         pushDrawingHistory(chart, before);
+        chart.emitAlarmChange('create', pastedLine);
         chart.selectedLineIndex = lines.length - 1;
         chart.hoveredLineIndex = -1;
         chart.activeLineHandle = null;
@@ -1351,10 +1449,10 @@ export function initEvents(chart) {
             syncLineToolbar(chart);
             chart.render();
         } else if (chart.touchMode === 'draw' && chart.snapPoint) {
-            if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine) {
+            if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine || chart.isDrawingAlarm) {
                 const before = captureDrawingState(chart);
                 const newLine = {
-                    type: chart.isDrawingHorizontalLine ? 'horizontal' : 'vertical',
+                    type: chart.isDrawingVerticalLine ? 'vertical' : 'horizontal',
                     scaleType: options.scaleType,
                     color: '#2962ff',
                     width: 2,
@@ -1365,14 +1463,17 @@ export function initEvents(chart) {
                     textSize: 12,
                     locked: false,
                     point1: toFreeDrawingPoint(chart.snapPoint),
+                    ...(chart.isDrawingAlarm ? buildAlarmLine(chart, chart.snapPoint) : {}),
                 };
                 lines.push(newLine);
                 pushDrawingHistory(chart, before);
+                chart.emitAlarmChange('create', newLine);
                 chart.selectedLineIndex = lines.length - 1;
                 chart.lineStartPoint = null;
                 chart.snapPoint = null;
                 chart.isDrawingHorizontalLine = false;
                 chart.isDrawingVerticalLine = false;
+                chart.isDrawingAlarm = false;
                 chart.showCrosshair = true;
                 deactivateDrawingButtons();
                 document.getElementById('tool-crosshair')?.classList.add('active');
@@ -1410,6 +1511,7 @@ export function initEvents(chart) {
                 chart.isDrawingVerticalLine = false;
                 chart.isDrawingFibonacci = false;
                 chart.isDrawingMeasure = false;
+                chart.isDrawingAlarm = false;
                 chart.showCrosshair = true;
                 deactivateDrawingButtons();
                 document.getElementById('tool-crosshair')?.classList.add('active');
@@ -1558,10 +1660,10 @@ export function initEvents(chart) {
             if (isDrawingAnyTool()) {
                 const point = getSnappedDrawingPoint(chart, mouseX, mouseY, height);
                 chart.snapPoint = point;
-                if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine) {
+                if (chart.isDrawingHorizontalLine || chart.isDrawingVerticalLine || chart.isDrawingAlarm) {
                     const before = captureDrawingState(chart);
                     const newLine = {
-                        type: chart.isDrawingHorizontalLine ? 'horizontal' : 'vertical',
+                        type: chart.isDrawingVerticalLine ? 'vertical' : 'horizontal',
                         scaleType: options.scaleType,
                         color: '#2962ff',
                         width: 2,
@@ -1572,14 +1674,17 @@ export function initEvents(chart) {
                         textSize: 12,
                         locked: false,
                         point1: toFreeDrawingPoint(point),
+                        ...(chart.isDrawingAlarm ? buildAlarmLine(chart, point) : {}),
                     };
                     lines.push(newLine);
                     pushDrawingHistory(chart, before);
+                    chart.emitAlarmChange('create', newLine);
                     chart.selectedLineIndex = lines.length - 1;
                     chart.lineStartPoint = null;
                     chart.snapPoint = null;
                     chart.isDrawingHorizontalLine = false;
                     chart.isDrawingVerticalLine = false;
+                    chart.isDrawingAlarm = false;
                     chart.showCrosshair = true;
                     deactivateDrawingButtons();
                     document.getElementById('tool-crosshair')?.classList.add('active');
@@ -1621,6 +1726,7 @@ export function initEvents(chart) {
                         chart.isDrawingVerticalLine = false;
                         chart.isDrawingFibonacci = false;
                         chart.isDrawingMeasure = false;
+                        chart.isDrawingAlarm = false;
                         chart.showCrosshair = true;
                         deactivateDrawingButtons();
                         document.getElementById('tool-crosshair')?.classList.add('active');
@@ -2023,6 +2129,21 @@ export function initEvents(chart) {
     setupPointerButton('line-delete', () => {
         deleteSelectedLine(chart);
     });
+    setupPointerButton('line-alarm-important', () => {
+        mutateSelectedAlarm(chart, (alarm) => {
+            alarm.important = !alarm.important;
+        });
+    });
+    setupPointerButton('line-alarm-direction', () => {
+        mutateSelectedAlarm(chart, (alarm) => {
+            alarm.direction = alarm.direction === 'above' ? 'below' : 'above';
+        });
+    });
+    setupPointerButton('line-alarm-pause', () => {
+        mutateSelectedAlarm(chart, (alarm) => {
+            alarm.state = alarm.state === 'paused' ? 'armed' : 'paused';
+        });
+    });
 
     const intervalSelect = document.getElementById('interval-select');
     if (intervalSelect) {
@@ -2096,6 +2217,7 @@ export function initEvents(chart) {
             chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
+            chart.isDrawingAlarm = false;
             chart.lineStartPoint = null;
             chart.snapPoint = null;
             chart.activeLineHandle = null;
@@ -2127,6 +2249,7 @@ export function initEvents(chart) {
             chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
+            chart.isDrawingAlarm = false;
             chart.showCrosshair = !chart.isDrawingLine;
             chart.lineStartPoint = null;
             chart.snapPoint = null;
@@ -2140,6 +2263,7 @@ export function initEvents(chart) {
             document.getElementById('tool-vertical-line')?.classList.remove('active');
             document.getElementById('tool-fibonacci')?.classList.remove('active');
             document.getElementById('tool-measure')?.classList.remove('active');
+            document.getElementById('tool-alarm')?.classList.remove('active');
             chart.render();
         });
     } else {
@@ -2155,6 +2279,7 @@ export function initEvents(chart) {
             chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
+            chart.isDrawingAlarm = false;
             chart.showCrosshair = !chart.isDrawingInfiniteLine;
             chart.lineStartPoint = null;
             chart.snapPoint = null;
@@ -2168,6 +2293,7 @@ export function initEvents(chart) {
             document.getElementById('tool-vertical-line')?.classList.remove('active');
             document.getElementById('tool-fibonacci')?.classList.remove('active');
             document.getElementById('tool-measure')?.classList.remove('active');
+            document.getElementById('tool-alarm')?.classList.remove('active');
             chart.render();
         });
     } else {
@@ -2183,6 +2309,7 @@ export function initEvents(chart) {
             chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
+            chart.isDrawingAlarm = false;
             chart.showCrosshair = !chart.isDrawingHorizontalLine;
             chart.lineStartPoint = null;
             chart.snapPoint = null;
@@ -2196,6 +2323,7 @@ export function initEvents(chart) {
             document.getElementById('tool-vertical-line')?.classList.remove('active');
             fibonacciButton?.classList.remove('active');
             measureButton?.classList.remove('active');
+            document.getElementById('tool-alarm')?.classList.remove('active');
             chart.render();
         });
     } else {
@@ -2211,6 +2339,7 @@ export function initEvents(chart) {
             chart.isDrawingHorizontalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
+            chart.isDrawingAlarm = false;
             chart.showCrosshair = !chart.isDrawingVerticalLine;
             chart.lineStartPoint = null;
             chart.snapPoint = null;
@@ -2224,6 +2353,7 @@ export function initEvents(chart) {
             horizontalLineButton?.classList.remove('active');
             fibonacciButton?.classList.remove('active');
             measureButton?.classList.remove('active');
+            document.getElementById('tool-alarm')?.classList.remove('active');
             chart.render();
         });
     } else {
@@ -2239,6 +2369,7 @@ export function initEvents(chart) {
             chart.isDrawingHorizontalLine = false;
             chart.isDrawingVerticalLine = false;
             chart.isDrawingMeasure = false;
+            chart.isDrawingAlarm = false;
             chart.showCrosshair = !chart.isDrawingFibonacci;
             chart.lineStartPoint = null;
             chart.snapPoint = null;
@@ -2252,6 +2383,7 @@ export function initEvents(chart) {
             horizontalLineButton?.classList.remove('active');
             verticalLineButton?.classList.remove('active');
             document.getElementById('tool-measure')?.classList.remove('active');
+            document.getElementById('tool-alarm')?.classList.remove('active');
             chart.render();
         });
     } else {
@@ -2267,6 +2399,7 @@ export function initEvents(chart) {
             chart.isDrawingHorizontalLine = false;
             chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
+            chart.isDrawingAlarm = false;
             chart.showCrosshair = !chart.isDrawingMeasure;
             chart.lineStartPoint = null;
             chart.snapPoint = null;
@@ -2280,16 +2413,50 @@ export function initEvents(chart) {
             horizontalLineButton?.classList.remove('active');
             verticalLineButton?.classList.remove('active');
             fibonacciButton?.classList.remove('active');
+            document.getElementById('tool-alarm')?.classList.remove('active');
             chart.render();
         });
     } else {
         console.error('tool-measure element not found');
     }
 
+    // Same two-step flow as the horizontal line: arm the tool, move to preview,
+    // click to drop. The line is a horizontal line; only the alarm field differs.
+    const alarmButton = document.getElementById('tool-alarm');
+    if (alarmButton) {
+        alarmButton.addEventListener('click', () => {
+            chart.isDrawingAlarm = !chart.isDrawingAlarm;
+            chart.isDrawingLine = false;
+            chart.isDrawingInfiniteLine = false;
+            chart.isDrawingHorizontalLine = false;
+            chart.isDrawingVerticalLine = false;
+            chart.isDrawingFibonacci = false;
+            chart.isDrawingMeasure = false;
+            chart.showCrosshair = !chart.isDrawingAlarm;
+            chart.lineStartPoint = null;
+            chart.snapPoint = null;
+            chart.activeLineHandle = null;
+            chart.selectedLineIndex = -1;
+            syncLineToolbar(chart);
+            alarmButton.classList.toggle('active');
+            crosshairButton?.classList.toggle('active', !chart.isDrawingAlarm);
+            lineButton?.classList.remove('active');
+            infiniteLineButton?.classList.remove('active');
+            horizontalLineButton?.classList.remove('active');
+            verticalLineButton?.classList.remove('active');
+            fibonacciButton?.classList.remove('active');
+            measureButton?.classList.remove('active');
+            chart.render();
+        });
+    } else {
+        console.error('tool-alarm element not found');
+    }
+
     const resetButton = document.getElementById('tool-reset');
     if (resetButton) {
         resetButton.addEventListener('click', () => {
             const beforeDrawingsReset = lines.length ? captureDrawingState(chart) : null;
+            const alarmsBeforeReset = snapshotAlarms(chart);
             view.offsetY = 0;
             view.scaleX = 1;
             view.scaleY = 1;
@@ -2299,6 +2466,7 @@ export function initEvents(chart) {
             chart.clampOffsetX();
             lines.length = 0;
             if (beforeDrawingsReset) pushDrawingHistory(chart, beforeDrawingsReset);
+            emitAlarmDiff(chart, alarmsBeforeReset, new Map());
             chart.selectedLineIndex = -1;
             chart.isDrawingLine = false;
             chart.isDrawingInfiniteLine = false;
@@ -2306,6 +2474,7 @@ export function initEvents(chart) {
             chart.isDrawingVerticalLine = false;
             chart.isDrawingFibonacci = false;
             chart.isDrawingMeasure = false;
+            chart.isDrawingAlarm = false;
             chart.lineStartPoint = null;
             chart.snapPoint = null;
             chart.activeLineHandle = null;

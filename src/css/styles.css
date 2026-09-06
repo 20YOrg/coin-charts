@@ -11,6 +11,7 @@
     --tv-blue: #2962ff;
     --tv-green: #089981;
     --tv-red: #f23645;
+    --tv-alarm: #f59e0b;
 }
 
 [data-theme="dark"] {
@@ -26,6 +27,7 @@
     --tv-blue: #5b8cff;
     --tv-green: #22ab94;
     --tv-red: #f7525f;
+    --tv-alarm: #fbbf24;
     color-scheme: dark;
 }
 

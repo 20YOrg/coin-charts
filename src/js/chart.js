@@ -2,7 +2,7 @@ import { DataManager } from './data-manager.js';
 import { initEvents } from './events.js';
 import { renderGrid, renderCandles, renderCrosshair, renderCrosshairAxisLabels, renderDrawingFeedback, renderLines, renderLineAxisLabels } from './rendering.js';
 import { renderIndicators } from './indicators.js';
-import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, toIntervalKey, addMonthsClamped, generateMonthTicks, parseIntervalSpec, isSubDailySpec, formatTimeOfDay, DAY_MS, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING, normalizeDrawing } from './utils.js';
+import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, toIntervalKey, addMonthsClamped, generateMonthTicks, parseIntervalSpec, isSubDailySpec, formatTimeOfDay, DAY_MS, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING, normalizeDrawing, ALARM_STATES } from './utils.js';
 
 const DRAWINGS_STORAGE_KEY = 'coin-charts:btc-usd:drawings:v1';
 const CHART_THEMES = {
@@ -63,6 +63,7 @@ export class Chart {
             priceFormatter: typeof options.priceFormatter === 'function' ? options.priceFormatter : undefined,
             onIntervalRequest: typeof options.onIntervalRequest === 'function' ? options.onIntervalRequest : undefined,
             intervals: Array.isArray(options.intervals) ? options.intervals : undefined,
+            onAlarmChange: typeof options.onAlarmChange === 'function' ? options.onAlarmChange : undefined,
         };
         this.view = {
             offsetX: 0,
@@ -95,6 +96,7 @@ export class Chart {
         this.isDrawingVerticalLine = false;
         this.isDrawingFibonacci = false;
         this.isDrawingMeasure = false;
+        this.isDrawingAlarm = false;
         this.lineStartPoint = null;
         this.snapPoint = null;
         this.lines = [];
@@ -205,6 +207,51 @@ export class Chart {
             localStorage.setItem(DRAWINGS_STORAGE_KEY, JSON.stringify(drawings));
         } catch (error) {
             console.warn('Unable to save drawings', error);
+        }
+    }
+
+    getLastClose() {
+        const last = this.dataManager.data[this.dataManager.data.length - 1];
+        return Number.isFinite(last?.close) ? last.close : null;
+    }
+
+    // Direction is decided once, at drop time, from where the price sits relative to
+    // the latest close. It is stored on the alarm and never recomputed, or the
+    // alarm would flip meaning the moment price crosses the line.
+    getAlarmDirectionForPrice(price) {
+        const lastClose = this.getLastClose();
+        if (!Number.isFinite(lastClose) || !Number.isFinite(price)) return 'above';
+        return price >= lastClose ? 'above' : 'below';
+    }
+
+    // Every alarm currently on the chart, so a host that reloads the page can pick
+    // up the alarms restored from localStorage without having seen their creation.
+    getAlarms() {
+        return this.lines
+            .filter(line => line?.alarm && line.type === 'horizontal')
+            .map(line => ({ ...line.alarm, price: line.point1?.y }));
+    }
+
+    // The library never decides whether an alarm fired; only the host knows the
+    // live price, so `triggered` has to be written back in from outside.
+    setAlarmState(id, state) {
+        if (!ALARM_STATES.includes(state)) return false;
+        const line = this.lines.find(item => item?.alarm?.id === id);
+        if (!line) return false;
+        line.alarm.state = state;
+        this.render();
+        return true;
+    }
+
+    // Fires only when the alarm's own data changed. Silently a no-op when the host
+    // passed no handler, so the standalone demo keeps working.
+    emitAlarmChange(action, line) {
+        const handler = this.options.onAlarmChange;
+        if (typeof handler !== 'function' || !line?.alarm) return;
+        try {
+            handler({ action, alarm: { ...line.alarm }, price: line.point1?.y });
+        } catch (error) {
+            console.warn('onAlarmChange handler failed', error);
         }
     }
 
@@ -1120,7 +1167,7 @@ export class Chart {
 
         const priceTicks = this.getPriceTicks(chartHeight);
         const timeTicks = this.getTimeTicks(visibleStartIndex, visibleEndIndex, candleWidth, spacing, chartWidth);
-        const isDrawingTool = this.isDrawingLine || this.isDrawingInfiniteLine || this.isDrawingHorizontalLine || this.isDrawingVerticalLine || this.isDrawingFibonacci || this.isDrawingMeasure;
+        const isDrawingTool = this.isDrawingLine || this.isDrawingInfiniteLine || this.isDrawingHorizontalLine || this.isDrawingVerticalLine || this.isDrawingFibonacci || this.isDrawingMeasure || this.isDrawingAlarm;
 
         this.canvas.parentElement?.classList.toggle('drawing-mode', isDrawingTool);
         this.canvas.parentElement?.classList.toggle('line-selected-mode', this.selectedLineIndex !== -1);
