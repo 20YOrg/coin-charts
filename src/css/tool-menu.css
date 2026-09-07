@@ -149,6 +149,18 @@
     color: var(--tv-alarm, #f59e0b);
 }
 
+#line-alarm-pause .alarm-play-icon {
+    display: none;
+}
+
+#line-alarm-pause.active .alarm-pause-icon {
+    display: none;
+}
+
+#line-alarm-pause.active .alarm-play-icon {
+    display: block;
+}
+
 /* Filled star reads as "starred" at a glance; outline means not marked. */
 #line-alarm-important.active svg {
     fill: currentColor;
@@ -177,6 +189,14 @@
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
+}
+
+.tool-menu-divider {
+    width: 22px;
+    height: 1px;
+    flex: 0 0 1px;
+    margin: 4px 0;
+    background: var(--tv-border);
 }
 
 .line-toolbar-divider {
@@ -527,6 +547,12 @@
         height: 34px;
     }
 
+    .tool-menu-divider {
+        width: 1px;
+        height: 22px;
+        margin: 0 2px;
+    }
+
     #line-toolbar {
         left: 8px;
         right: auto;
@@ -542,13 +568,18 @@
         justify-content: flex-start;
         gap: 4px;
         padding: 4px;
-        overflow: visible;
+        /* An alarm adds three controls, which push the row past a narrow screen. */
+        overflow-x: auto;
         scrollbar-width: none;
         border-radius: 8px;
     }
 
     #line-toolbar::-webkit-scrollbar {
         display: none;
+    }
+
+    #line-toolbar > * {
+        flex: 0 0 auto;
     }
 
     #line-toolbar button {
