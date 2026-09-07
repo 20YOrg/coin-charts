@@ -1,5 +1,5 @@
 import { DataManager } from './data-manager.js';
-import { initEvents } from './events.js';
+import { initEvents, createAlarmDrawing } from './events.js';
 import { renderGrid, renderCandles, renderCrosshair, renderCrosshairAxisLabels, renderDrawingFeedback, renderLines, renderLineAxisLabels } from './rendering.js';
 import { renderIndicators } from './indicators.js';
 import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, toIntervalKey, addMonthsClamped, generateMonthTicks, parseIntervalSpec, isSubDailySpec, formatTimeOfDay, DAY_MS, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING, normalizeDrawing, ALARM_STATES } from './utils.js';
@@ -241,6 +241,47 @@ export class Chart {
         line.alarm.state = state;
         this.render();
         return true;
+    }
+
+    // Draw an alarm the host already knows about — one that exists server-side but
+    // whose line was lost, typically because another device overwrote this device's
+    // drawings wholesale. The host cannot build a valid drawing itself, which is the
+    // whole reason this lives here.
+    //
+    // Silent by default: the host is telling us about an alarm, not creating one, so
+    // reporting `create` back would be a redundant and wrongly-labelled write. Pass
+    // `{ emit: true }` when a host's own UI really is creating a new alarm.
+    addAlarm(alarm = {}, { emit = false } = {}) {
+        const price = alarm?.price;
+        if (!Number.isFinite(price) || price <= 0) return null;
+
+        // Restoring the same alarm twice would leave two lines for one server row.
+        if (typeof alarm.id === 'string' && alarm.id) {
+            const existing = this.lines.find(line => line?.alarm?.id === alarm.id);
+            if (existing) return existing;
+        }
+
+        // The host has no way to know what a valid time anchor looks like, so pin the
+        // line to the latest candle exactly as a hand-drawn one would be.
+        const slotWidth = this.getSlotWidth();
+        const centerOffset = slotWidth > 0 ? this.getCandleWidth() / 2 / slotWidth : 0;
+        const index = Math.max(0, this.dataManager.data.length - 1);
+
+        const line = createAlarmDrawing(this, { x: index + centerOffset, y: price }, alarm);
+        this.ensureDrawingTimes(line);
+        this.lines.push(line);
+
+        // A restored line was always meant to be on the chart, so backdate it into the
+        // undo snapshots too. Without this an undo of an *earlier* edit would drop it
+        // and report a delete, and the host would erase a live alarm.
+        this.drawingHistory.forEach((state) => {
+            const copy = normalizeDrawing(JSON.parse(JSON.stringify(line)));
+            if (copy) state.lines.push(copy);
+        });
+
+        this.render();
+        if (emit) this.emitAlarmChange('create', line);
+        return line;
     }
 
     // Fires only when the alarm's own data changed. Silently a no-op when the host

@@ -1,20 +1,47 @@
 import { openMAModal } from './modal.js';
-import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toIntervalKey, parseIntervalSpec, isSubDailySpec, AXIS_MARGIN, TIME_AXIS_HEIGHT, normalizeDrawing, createAlarmId } from './utils.js';
+import { getLinePoints, getDrawingPointX, distanceToLineSegment, priceToY, yToPrice, toIntervalKey, parseIntervalSpec, isSubDailySpec, AXIS_MARGIN, TIME_AXIS_HEIGHT, normalizeDrawing, createAlarmId, ALARM_DIRECTIONS, ALARM_STATES } from './utils.js';
 
 const ALARM_LINE_COLOR = '#f59e0b';
 
 // Amber + dashed is written onto the line at creation time rather than forced at
 // render time, so a user who later recolours it keeps their choice.
-function buildAlarmLine(chart, point) {
+//
+// `overrides` is how a host restores an alarm it already knows about. Anything it
+// supplies wins over the values derived from the drop point.
+function buildAlarmLine(chart, point, overrides = {}) {
     return {
         color: ALARM_LINE_COLOR,
         style: 'dashed',
         alarm: {
-            id: createAlarmId(),
-            direction: chart.getAlarmDirectionForPrice(point?.y),
-            state: 'armed',
-            important: false,
+            // The host restores by the server's id; minting a new one here would leave
+            // the two sides pointing at different alarms forever.
+            id: typeof overrides.id === 'string' && overrides.id ? overrides.id : createAlarmId(),
+            // A stored direction is authoritative. Re-deriving it is only right while
+            // the user is placing the line: by the time an alarm is restored the price
+            // has moved, and "rises to 100" would silently become "falls to 100".
+            direction: ALARM_DIRECTIONS.includes(overrides.direction)
+                ? overrides.direction
+                : chart.getAlarmDirectionForPrice(point?.y),
+            state: ALARM_STATES.includes(overrides.state) ? overrides.state : 'armed',
+            important: Boolean(overrides.important),
         },
+    };
+}
+
+// The one place an alarm line is shaped, so a restored line is indistinguishable
+// from a hand-drawn one: same styling, same alarm structure, same everything.
+export function createAlarmDrawing(chart, point, overrides = {}) {
+    return {
+        type: 'horizontal',
+        scaleType: chart.options.scaleType,
+        width: 2,
+        text: '',
+        textColor: chart.options.axisColor,
+        textBold: false,
+        textSize: 12,
+        locked: false,
+        point1: { x: point.x, y: point.y },
+        ...buildAlarmLine(chart, point, overrides),
     };
 }
 
