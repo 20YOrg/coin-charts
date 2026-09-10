@@ -879,37 +879,82 @@ export class Chart {
         return parseIntervalSpec(this.dataManager.interval);
     }
 
+    // Candle times parsed once per data array, so the index<->date lookups below
+    // never assume the series is contiguous. `data` is replaced wholesale by
+    // setData()/setInterval(), so identity is enough to invalidate the cache.
+    getCandleTimes() {
+        const data = this.dataManager.data;
+        const cached = this.candleTimeCache;
+        if (cached && cached.source === data) return cached.times;
+
+        const times = new Float64Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+            const date = parseDateUTC(data[i].time);
+            times[i] = date ? date.getTime() : NaN;
+        }
+        this.candleTimeCache = { source: data, times };
+        return times;
+    }
+
     getDateForIndex(index) {
         const data = this.dataManager.data;
         if (!data.length) return null;
 
-        const spec = this.getIntervalSpec();
-        const anchorDate = parseDateUTC(data[0].time);
-        if (!anchorDate) return null;
-
-        if (spec.unit === 'M') {
-            return addMonthsClamped(anchorDate, index * spec.amount);
+        const times = this.getCandleTimes();
+        if (index >= 0 && index < data.length) {
+            const time = times[Math.round(index)];
+            return Number.isFinite(time) ? new Date(time) : null;
         }
 
-        return new Date(anchorDate.getTime() + index * spec.ms);
+        // Off either end of the series there is no candle to read, so step away
+        // from the nearest one at the nominal interval.
+        const edge = index < 0 ? 0 : data.length - 1;
+        const edgeTime = times[edge];
+        if (!Number.isFinite(edgeTime)) return null;
+
+        const spec = this.getIntervalSpec();
+        if (spec.unit === 'M') {
+            return addMonthsClamped(new Date(edgeTime), (index - edge) * spec.amount);
+        }
+
+        return new Date(edgeTime + (index - edge) * spec.ms);
     }
 
     getIndexForDate(date) {
         const data = this.dataManager.data;
         if (!date || !data.length) return -1;
 
-        const firstDate = parseDateUTC(data[0].time);
-        if (!firstDate) return -1;
+        const times = this.getCandleTimes();
+        const firstTime = times[0];
+        const lastTime = times[data.length - 1];
+        if (!Number.isFinite(firstTime) || !Number.isFinite(lastTime)) return -1;
 
+        const target = date.getTime();
         const spec = this.getIntervalSpec();
-        if (spec.unit === 'M') {
-            const monthDelta = (date.getUTCFullYear() - firstDate.getUTCFullYear()) * 12
-                + date.getUTCMonth()
-                - firstDate.getUTCMonth();
-            return Math.round(monthDelta / spec.amount);
-        }
+        const stepsFrom = (fromTime) => {
+            if (spec.unit === 'M') {
+                const from = new Date(fromTime);
+                const monthDelta = (date.getUTCFullYear() - from.getUTCFullYear()) * 12
+                    + date.getUTCMonth()
+                    - from.getUTCMonth();
+                return Math.round(monthDelta / spec.amount);
+            }
+            return Math.round((target - fromTime) / spec.ms);
+        };
 
-        return Math.round((date - firstDate) / spec.ms);
+        if (target <= firstTime) return stepsFrom(firstTime);
+        if (target >= lastTime) return data.length - 1 + stepsFrom(lastTime);
+
+        // Inside the series, resolve to the first candle at or after the target,
+        // matching getIndexAtOrAfter(). Times are sorted, so binary search.
+        let lo = 0;
+        let hi = data.length - 1;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (times[mid] < target) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
     }
 
     getCalendarTimeTicks(startIndex, endIndex, candleWidth, spacing, chartWidth) {
