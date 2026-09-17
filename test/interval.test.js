@@ -104,3 +104,31 @@ test('labels carry the time only when the candle has one', () => {
     assert.equal(formatDuration(30 * 60000), '30m');
     assert.equal(formatDuration(3 * 86400000), '3d');
 });
+
+const dailyCandles = (count, startISO) => {
+    const start = Date.parse(`${startISO}T00:00:00Z`);
+    return Array.from({ length: count }, (_, i) => {
+        const time = new Date(start + i * 86400000).toISOString().slice(0, 10);
+        return { time, open: 100 + i, high: 110 + i, low: 90 + i, close: 105 + i };
+    });
+};
+
+test('weekly candles are keyed by the Monday they start on', () => {
+    const manager = new DataManager(stubChart());
+    manager.setData(dailyCandles(14, '2026-09-07'));
+
+    assert.equal(manager.setInterval('1W'), true);
+    assert.deepEqual(manager.data.map(c => c.time), ['2026-09-07', '2026-09-14']);
+    assert.equal(manager.data[0].open, 100, 'open is Monday 09-07');
+    assert.equal(manager.data[0].close, 111, 'close is Sunday 09-13');
+
+    assert.equal(manager.getBucketKey(new Date('2013-03-31T00:00:00Z'), 1, 'W'), '2013-03-25');
+});
+
+test('multi-week candles start on a Monday and bucket the same way every time', () => {
+    const manager = new DataManager(stubChart());
+    const keys = dailyCandles(21, '2026-09-07').map(c => manager.getBucketKey(new Date(`${c.time}T00:00:00Z`), 2, 'W'));
+    assert.deepEqual([...new Set(keys)], ['2026-08-31', '2026-09-14']);
+    assert.equal(keys.filter(k => k === '2026-09-14').length, 14, '09-14 … 09-27 share a bucket');
+    keys.forEach(k => assert.equal(new Date(`${k}T00:00:00Z`).getUTCDay(), 1));
+});

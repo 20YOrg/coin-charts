@@ -1,5 +1,7 @@
 import { parseDateUTC, toISODate, toIntervalKey, parseIntervalSpec } from './utils.js';
 
+const MONDAY_EPOCH_DAY = 4; // 1970-01-05
+
 export class DataManager {
     constructor(chart) {
         this.chart = chart;
@@ -90,7 +92,8 @@ export class DataManager {
             const epochDay = Math.floor(date.getTime() / 86400000);
             const mondayOffset = (date.getUTCDay() + 6) % 7;
             const mondayDay = epochDay - mondayOffset;
-            const bucketWeek = Math.floor(mondayDay / (amount * 7)) * amount * 7;
+            // Align multi-week buckets to a Monday; epoch day 0 (1970-01-01) is a Thursday.
+            const bucketWeek = MONDAY_EPOCH_DAY + Math.floor((mondayDay - MONDAY_EPOCH_DAY) / (amount * 7)) * amount * 7;
             return toISODate(new Date(bucketWeek * 86400000));
         }
 
