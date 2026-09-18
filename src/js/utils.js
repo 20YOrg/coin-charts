@@ -282,12 +282,21 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
             start: line.start ? { ...line.start, x: startX } : line.start,
             end: line.end ? { ...line.end, x: endX } : line.end,
         };
+    const viewMin = -chart.view.offsetX / slotWidth;
+    const viewMax = (chartWidth - chart.view.offsetX) / slotWidth;
+    // Sample across the visible span, so the sample spacing follows the zoom.
+    // A finite line is clipped to the part of it that is on screen; sampling its
+    // whole length instead leaves gaps at both ends once it is wider than the
+    // viewport, and drops below two points entirely when zoomed in far enough.
+    // No slack past the viewport edges: those samples are discarded by the
+    // in-viewport test below, which just reopens the same gaps.
     if (line.type === 'infinite') {
-        xMin = (-chart.view.offsetX / slotWidth) - 2;
-        xMax = ((chartWidth - chart.view.offsetX) / slotWidth) + 2;
+        xMin = viewMin;
+        xMax = viewMax;
     } else {
-        xMin = Math.min(startX, endX);
-        xMax = Math.max(startX, endX);
+        xMin = Math.max(Math.min(startX, endX), viewMin);
+        xMax = Math.min(Math.max(startX, endX), viewMax);
+        if (xMin > xMax) return [];
     }
     const lineScaleType = line.scaleType || chart.options.scaleType;
     const { m, b } = getLineParameters(lineForMath, lineScaleType);
@@ -302,7 +311,9 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
         }
     } else {
         for (let i = 0; i < numPoints; i++) {
-            const x = xMin + i * dx;
+            // Land the last sample exactly on xMax so rounding cannot push it a
+            // hair past the right edge and get it discarded.
+            const x = i === numPoints - 1 ? xMax : xMin + i * dx;
             let price;
             if (lineScaleType === 'logarithmic') {
                 price = Math.pow(10, m * x + b);
