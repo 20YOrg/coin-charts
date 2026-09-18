@@ -303,24 +303,37 @@ export function getLinePoints(chart, line, width, height, candleWidth, spacing, 
     const dx = xMax === xMin ? 0.0001 : (xMax - xMin) / (numPoints - 1);
 
     if (m === Infinity) {
-        const x = b;
-        const canvasX = x * (candleWidth + spacing) + chart.view.offsetX;
-        if (canvasX >= -candleWidth && canvasX <= width - AXIS_MARGIN) {
+        // A vertical line has this one x and nothing else, so losing it to the
+        // bounds test drops the whole line rather than shortening it. The left
+        // edge already carries a candleWidth of slack; give the right edge half a
+        // pixel so a line sitting on the edge cannot round its way off screen.
+        const rawCanvasX = b * slotWidth + chart.view.offsetX;
+        if (rawCanvasX >= -candleWidth && rawCanvasX <= chartWidth + 0.5) {
+            const canvasX = Math.min(rawCanvasX, chartWidth);
             points.push({ x: canvasX, y: 0 });
             points.push({ x: canvasX, y: height });
         }
     } else {
         for (let i = 0; i < numPoints; i++) {
-            // Land the last sample exactly on xMax so rounding cannot push it a
-            // hair past the right edge and get it discarded.
-            const x = i === numPoints - 1 ? xMax : xMin + i * dx;
+            const isFirst = i === 0;
+            const isLast = i === numPoints - 1;
+            // Land the last sample exactly on xMax rather than accumulating dx.
+            const x = isLast ? xMax : xMin + i * dx;
             let price;
             if (lineScaleType === 'logarithmic') {
                 price = Math.pow(10, m * x + b);
             } else {
                 price = m * x + b;
             }
-            const canvasX = x * (candleWidth + spacing) + chart.view.offsetX;
+            // viewMin/viewMax are pixels divided by slotWidth; multiplying back
+            // does not always land exactly on 0 / chartWidth. A hair over
+            // chartWidth would fail the bounds test below and leave the line one
+            // sample interval short of the right edge, so pin the two end
+            // samples to the edges they are meant to sit on. Both are no-ops for
+            // a segment whose ends fall inside the viewport.
+            let canvasX = x * slotWidth + chart.view.offsetX;
+            if (isLast) canvasX = Math.min(canvasX, chartWidth);
+            if (isFirst) canvasX = Math.max(canvasX, 0);
             const canvasY = priceToY(price, height, chart.view, chart.options.scaleType);
             if (canvasX >= -candleWidth && canvasX <= width - AXIS_MARGIN && isFinite(canvasY)) {
                 points.push({ x: canvasX, y: canvasY });
