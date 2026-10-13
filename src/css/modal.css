@@ -49,6 +49,19 @@
     grid-template-columns: 34px minmax(50px, 1fr) 76px 76px 86px;
 }
 
+/* Phones: ~317px per row at 375px wide, so tighten columns and gaps. The
+   color column only needs to fit its 42px swatch. */
+@media (max-width: 420px) {
+    #ma-modal .ma-config {
+        grid-template-columns: 28px minmax(0, 1fr) 72px 42px;
+        column-gap: 6px;
+    }
+
+    #ma-modal .ma-config.ma-config-bands {
+        grid-template-columns: 28px minmax(0, 1fr) 72px 72px 42px;
+    }
+}
+
 .ma-config + .ma-config {
     border-top: 1px solid var(--tv-border);
 }
