@@ -349,6 +349,25 @@
                     <input type="color" id="ma3-color" value="#00FF00">
                 </label>
             </div>
+            <div class="ma-config ma-config-bands">
+                <label class="ma-enabled">
+                    <input type="checkbox" id="bb-enabled">
+                    <span></span>
+                </label>
+                <div class="ma-name">BB</div>
+                <label class="ma-field">
+                    <span>Length</span>
+                    <input type="number" id="bb-period" value="20" min="2" placeholder="Period">
+                </label>
+                <label class="ma-field">
+                    <span>StdDev</span>
+                    <input type="number" id="bb-mult" value="2" min="0.1" step="0.1" placeholder="Multiplier">
+                </label>
+                <label class="ma-color">
+                    <span>Color</span>
+                    <input type="color" id="bb-color" value="#8E5CF7">
+                </label>
+            </div>
         </div>
         <div class="modal-buttons">
             <button class="cancel-btn">Cancel</button>

@@ -18,6 +18,11 @@ export function openMAModal(chart) {
     document.getElementById('ma2-period').value = chart.movingAverages[1].period || 30;
     document.getElementById('ma3-period').value = chart.movingAverages[2].period || 365;
 
+    document.getElementById('bb-enabled').checked = chart.bollinger.enabled;
+    document.getElementById('bb-period').value = chart.bollinger.period;
+    document.getElementById('bb-mult').value = chart.bollinger.mult;
+    document.getElementById('bb-color').value = chart.bollinger.color;
+
     modal.style.display = 'block';
     overlay.style.display = 'block';
     window.currentChart = chart;
@@ -57,6 +62,15 @@ export function saveMAModal(chart) {
             color: document.getElementById(input.color).value,
         };
     });
+
+    const bbPeriod = parseInt(document.getElementById('bb-period').value, 10);
+    const bbMult = parseFloat(document.getElementById('bb-mult').value);
+    chart.bollinger = {
+        enabled: document.getElementById('bb-enabled').checked,
+        period: isNaN(bbPeriod) || bbPeriod < 2 ? 20 : bbPeriod,
+        mult: !Number.isFinite(bbMult) || bbMult <= 0 ? 2 : bbMult,
+        color: document.getElementById('bb-color').value,
+    };
 
     closeMAModal();
     chart.render();

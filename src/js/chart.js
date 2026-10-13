@@ -1,7 +1,7 @@
 import { DataManager } from './data-manager.js';
 import { initEvents, createAlarmDrawing } from './events.js';
 import { renderGrid, renderCandles, renderCrosshair, renderCrosshairAxisLabels, renderDrawingFeedback, renderLines, renderLineAxisLabels } from './rendering.js';
-import { renderIndicators } from './indicators.js';
+import { renderIndicators, getBollingerPoints, renderBollingerFill, renderBollingerLines } from './indicators.js';
 import { priceToY, yToPrice, formatDate, parseDateUTC, toISODate, toIntervalKey, addMonthsClamped, generateMonthTicks, parseIntervalSpec, isSubDailySpec, formatTimeOfDay, DAY_MS, AXIS_MARGIN, TIME_AXIS_HEIGHT, CANDLE_SPACING, normalizeDrawing, ALARM_STATES } from './utils.js';
 
 const DRAWINGS_STORAGE_KEY = 'coin-charts:btc-usd:drawings:v1';
@@ -90,6 +90,8 @@ export class Chart {
             { enabled: true, period: 30, color: '#FF0000' },  // 30-day MA
             { enabled: true, period: 365, color: '#00FF00' }, // 365-day MA
         ];
+        // Kept out of movingAverages: downstream code reads that array and relies on its length.
+        this.bollinger = { enabled: false, period: 20, mult: 2, color: '#8E5CF7' };
         this.isDrawingLine = false;
         this.isDrawingInfiniteLine = false;
         this.isDrawingHorizontalLine = false;
@@ -1264,7 +1266,10 @@ export class Chart {
         this.ctx.beginPath();
         this.ctx.rect(0, 0, chartWidth, chartHeight);
         this.ctx.clip();
+        const bollingerPoints = getBollingerPoints(this.bollinger, this.dataManager.data, this.view, width, height, candleWidth, spacing, this.options.scaleType);
+        renderBollingerFill(this.ctx, this.bollinger, bollingerPoints);
         renderCandles(this.ctx, this.options, this.dataManager.data, this.view, width, height, candleWidth, spacing);
+        renderBollingerLines(this.ctx, this.bollinger, bollingerPoints);
         renderIndicators(this.ctx, this.movingAverages, this.dataManager.data, this.view, width, height, candleWidth, spacing, this.options.scaleType);
         this.renderHighLowMarkers(startIndex, endIndex, chartHeight, chartWidth, candleWidth, spacing);
         renderLines(this.ctx, this.lines, this.selectedLineIndex, this, width, height, candleWidth, spacing);

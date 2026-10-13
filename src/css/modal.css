@@ -43,6 +43,12 @@
     border-radius: 6px;
 }
 
+/* The Bollinger row has a second numeric field; the id keeps this ahead of
+   downstream `#ma-modal .ma-config` overrides of the four-column grid. */
+#ma-modal .ma-config.ma-config-bands {
+    grid-template-columns: 34px minmax(50px, 1fr) 76px 76px 86px;
+}
+
 .ma-config + .ma-config {
     border-top: 1px solid var(--tv-border);
 }
