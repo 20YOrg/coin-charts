@@ -730,3 +730,11 @@
         -webkit-text-size-adjust: 100%;
     }
 }
+
+#tool-hide-lines .hide-lines-slash {
+    display: none;
+}
+
+#tool-hide-lines.active .hide-lines-slash {
+    display: inline;
+}

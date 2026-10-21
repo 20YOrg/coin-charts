@@ -661,6 +661,7 @@ export function renderLines(ctx, lines, selectedLineIndex, chart, width, height,
             console.warn('Invalid line object at index', index, line);
             return;
         }
+        if (chart.isLineHidden(line)) return;
         try {
             const isSelected = index === selectedLineIndex;
             if (line.type === 'fibonacci') {
@@ -759,7 +760,7 @@ export function renderLineAxisLabels(ctx, lines, chart, width, height, candleWid
     ctx.chartOptions = chart.options;
 
     lines.forEach((line) => {
-        if (!line?.point1) return;
+        if (!line?.point1 || chart.isLineHidden(line)) return;
 
         if (line.type === 'horizontal') {
             const y = priceToY(line.point1.y, chartHeight, chart.view, chart.options.scaleType);

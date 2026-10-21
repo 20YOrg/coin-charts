@@ -174,6 +174,7 @@ function findLineHandleAt(chart, mouseX, mouseY, chartHeight) {
 
     selectedFirst.forEach((lineIndex) => {
         const line = chart.lines[lineIndex];
+        if (chart.isLineHidden(line)) return;
         getLineHandles(chart, line, chartHeight).forEach((handle) => {
             const distance = Math.hypot(mouseX - handle.x, mouseY - handle.y);
             if (distance < radius && distance < bestDistance) {
@@ -948,7 +949,7 @@ export function initEvents(chart) {
         let closestLineIndex = -1;
 
         chart.lines.forEach((line, index) => {
-            if (!line || (!line.start && !line.point1)) return;
+            if (!line || (!line.start && !line.point1) || chart.isLineHidden(line)) return;
             let distance = Infinity;
             if (line.type === 'fibonacci') {
                 distance = getFibonacciHit(chart, line, mouseX, mouseY, width, chartHeight);
@@ -1030,6 +1031,7 @@ export function initEvents(chart) {
     }
 
     function pasteCopiedDrawing() {
+        chart.showHiddenLines?.();
         if (!chart.copiedDrawing) return;
         const before = captureDrawingState(chart);
         const pastedLine = cloneDrawing(chart.copiedDrawing);
@@ -2022,6 +2024,31 @@ export function initEvents(chart) {
         closeLineTextEditor(true);
         undoDrawingChange(chart);
     });
+
+    const hideLinesButton = document.getElementById('tool-hide-lines');
+    const setLinesHidden = (hidden) => {
+        closeLineTextEditor(true);
+        chart.setLinesHidden(hidden);
+        syncLineToolbar(chart);
+        hideLinesButton?.classList.toggle('active', chart.linesHidden);
+        hideLinesButton?.setAttribute('aria-pressed', String(chart.linesHidden));
+        const label = chart.linesHidden ? 'Show drawings' : 'Hide drawings';
+        hideLinesButton?.setAttribute('title', label);
+        hideLinesButton?.setAttribute('aria-label', label);
+    };
+    hideLinesButton?.addEventListener('click', () => setLinesHidden(!chart.linesHidden));
+    // A line drawn or pasted while the rest are hidden would vanish the moment
+    // it was finished, so picking up a drawing tool brings them all back.
+    // Capture phase on the menu, so it runs even if a tool's own handler stops
+    // the click from going any further.
+    const DRAWING_TOOL_IDS = ['tool-alarm', 'tool-line', 'tool-infinite-line', 'tool-horizontal-line', 'tool-vertical-line', 'tool-fibonacci', 'tool-measure'];
+    document.getElementById('tool-menu')?.addEventListener('click', (e) => {
+        const button = e.target?.closest?.('button');
+        if (chart.linesHidden && DRAWING_TOOL_IDS.includes(button?.id)) setLinesHidden(false);
+    }, true);
+    chart.showHiddenLines = () => {
+        if (chart.linesHidden) setLinesHidden(false);
+    };
 
     setupColorMenu({
         buttonId: 'line-color-button',

@@ -102,6 +102,10 @@ export class Chart {
         this.lineStartPoint = null;
         this.snapPoint = null;
         this.lines = [];
+        // Hides every drawing, alarms included, for reading the candles under a
+        // busy chart. Display only: the lines stay in this.lines, keep saving,
+        // and hidden alarms still fire.
+        this.linesHidden = false;
         this.selectedLineIndex = -1;
         this.hoveredLineIndex = -1;
         this.isMovingLine = false;
@@ -210,6 +214,21 @@ export class Chart {
         } catch (error) {
             console.warn('Unable to save drawings', error);
         }
+    }
+
+    isLineHidden() {
+        return this.linesHidden;
+    }
+
+    setLinesHidden(hidden) {
+        this.linesHidden = !!hidden;
+        if (this.linesHidden) {
+            this.selectedLineIndex = -1;
+            this.hoveredLineIndex = -1;
+            this.activeLineHandle = null;
+            this.isMovingLine = false;
+        }
+        this.render();
     }
 
     getLastClose() {
