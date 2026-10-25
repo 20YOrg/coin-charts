@@ -1,21 +1,25 @@
+/* The toolbar row: drawing tools sit in #controls beside the interval, scale and
+   MA buttons instead of floating over the candles. Undo, hide and reset are pushed
+   to the far right, set apart by position rather than a divider. */
 #tool-menu {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 46px;
-    z-index: 10;
+    flex: 1 1 auto;
+    min-width: 0;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 2px;
-    padding: 8px 0;
-    background: var(--tv-elevated-bg);
-    border-right: 1px solid var(--tv-border);
+    gap: 4px;
 }
 
-#tool-menu button {
-    width: 34px;
-    height: 34px;
+#tool-menu #tool-undo {
+    margin-left: auto;
+}
+
+/* Every button in the row looks the same: clear at rest, a fill on hover. */
+#tool-menu button,
+#quick-controls button,
+#theme-toggle {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
     border: 0;
     border-radius: 4px;
     margin: 0;
@@ -30,18 +34,16 @@
     position: relative;
 }
 
-#tool-menu button:hover {
+#tool-menu button:hover,
+#quick-controls button:hover,
+#quick-controls button[aria-expanded="true"],
+#theme-toggle:hover {
     background: var(--tv-hover);
 }
 
 #tool-menu button.active {
     background: var(--tv-active);
     color: var(--tv-blue);
-}
-
-#chart-container.drawing-mode #tool-menu button.active {
-    background: var(--tv-active);
-    box-shadow: inset 0 0 0 1px rgba(41, 98, 255, 0.18);
 }
 
 #tool-menu button:disabled {
@@ -53,7 +55,8 @@
     background: transparent;
 }
 
-#tool-menu svg {
+#tool-menu svg,
+#quick-controls svg {
     display: block;
     stroke: currentColor;
     fill: none;
@@ -75,7 +78,7 @@
 
 #line-toolbar {
     position: absolute;
-    left: 58px;
+    left: 10px;
     top: 10px;
     z-index: 20;
     height: 42px;
@@ -189,14 +192,6 @@
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
-}
-
-.tool-menu-divider {
-    width: 22px;
-    height: 1px;
-    flex: 0 0 1px;
-    margin: 4px 0;
-    background: var(--tv-border);
 }
 
 .line-toolbar-divider {
@@ -530,33 +525,18 @@
 }
 
 @media (max-width: 720px) {
-    #tool-menu {
-        left: 8px;
-        top: 8px;
-        width: auto;
-        max-width: calc(100% - 16px);
-        flex-direction: row;
-        padding: 4px;
-        border: 1px solid var(--tv-border);
-        border-radius: 8px;
-        box-shadow: 0 6px 16px var(--tv-shadow);
-    }
-
-    #tool-menu button {
-        width: 34px;
-        height: 34px;
-    }
-
-    .tool-menu-divider {
-        width: 1px;
-        height: 22px;
-        margin: 0 2px;
+    #tool-menu button,
+    #quick-controls button,
+    #theme-toggle {
+        width: 28px;
+        min-width: 28px;
+        height: 28px;
     }
 
     #line-toolbar {
         left: 8px;
         right: auto;
-        top: 52px;
+        top: 8px;
         bottom: auto;
         width: max-content;
         max-width: calc(100% - 16px);
@@ -737,4 +717,25 @@
 
 #tool-hide-lines.active .hide-lines-slash {
     display: inline;
+}
+
+/* Phones: the drawing tools take a row of their own under the symbol, interval,
+   scale and MA. Twelve 26px buttons with no gap fit 375px; space-between spreads
+   them, and undo/hide/reset get a little extra room as their own group. */
+@media (max-width: 579px) {
+    #tool-menu {
+        order: 1;
+        flex: 1 0 100%;
+        justify-content: space-between;
+        gap: 0;
+    }
+
+    #tool-menu button {
+        width: 26px;
+        min-width: 26px;
+    }
+
+    #tool-menu #tool-undo {
+        margin-left: 8px;
+    }
 }

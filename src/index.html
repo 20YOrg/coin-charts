@@ -17,53 +17,28 @@
             <span class="symbol-meta">Bitcoin / U.S. Dollar</span>
         </div>
         <div class="toolbar-divider"></div>
-        <div class="control-row control-chip interval-control">
-            <label for="interval-select" class="control-title">Interval</label>
-            <select id="interval-select">
-                <option value="1D">1D</option>
-                <option value="3D">3D</option>
-                <option value="1W">1W</option>
-                <option value="1M">1M</option>
-                <option value="3M">3M</option>
-                <option value="6M">6M</option>
-            </select>
-            <span class="inline-divider"></span>
-            <label for="custom-interval-value" class="custom-label">Custom</label>
-            <input id="custom-interval-value" type="number" min="1" max="999" value="9">
-            <select id="custom-interval-unit">
-                <option value="D">days</option>
-                <option value="W">weeks</option>
-                <option value="M">months</option>
-            </select>
-            <button id="custom-interval-apply" type="button">Set</button>
+        <!-- Interval, scale and indicators: what the chart shows. -->
+        <div id="quick-controls">
+            <button id="interval-button" type="button" aria-haspopup="menu" aria-expanded="false" title="Interval">D</button>
+            <button id="scale-button" type="button" title="Linear scale — switch to log" aria-label="Linear scale — switch to log">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path class="scale-axis" d="M3 3v12h12" />
+                    <path class="scale-linear" d="M5.5 12.5 14.5 3.5" />
+                    <path class="scale-log" d="M5.5 12.5C6.5 7 9 4.5 14.5 3.5" />
+                </svg>
+            </button>
+            <button id="tool-ma" type="button" title="Configure Moving Average" aria-label="Configure Moving Average">
+                <span class="tool-text">MA</span>
+            </button>
         </div>
-        <div class="control-row control-chip">
-            <label for="scale-select">Scale</label>
-            <select id="scale-select">
-                <option value="linear">Linear</option>
-                <option value="logarithmic">Logarithmic</option>
-            </select>
-        </div>
-    </div>
-    <div id="chart-container">
-        <canvas id="chart"></canvas>
-        <div id="ohlc-info" hidden></div>
+        <div class="toolbar-divider tools-divider"></div>
+        <!-- Drawing tools (the alarm is a price line too), then the three that manage
+             what is drawn, pushed to the right end of the row. -->
         <div id="tool-menu">
             <button id="tool-crosshair" title="Toggle Crosshair" aria-label="Toggle Crosshair">
                 <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
                     <path d="M9 2v14M2 9h14" />
                 </svg>
-            </button>
-            <button id="tool-alarm" title="Price Alarm" aria-label="Price Alarm">
-                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-                    <path d="M4.6 12.5h8.8c-1 -1.1 -1.4 -2 -1.4 -3.6V7.9a3.4 3.4 0 0 0 -6 -2.2" />
-                    <path d="M6 6.4V8.9c0 1.6 -0.4 2.5 -1.4 3.6" />
-                    <path d="M7.5 14.4a1.7 1.7 0 0 0 3 0" />
-                </svg>
-            </button>
-            <div class="tool-menu-divider" aria-hidden="true"></div>
-            <button id="tool-ma" title="Configure Moving Average" aria-label="Configure Moving Average">
-                <span class="tool-text">MA</span>
             </button>
             <button id="tool-line" title="Draw Finite Line">
                 <svg width="20" height="20" viewBox="0 0 20 20">
@@ -109,10 +84,11 @@
                     <path d="M10.9 4.6 13.1 6.8" />
                 </svg>
             </button>
-            <button id="tool-reset" title="Reset View" aria-label="Reset View">
+            <button id="tool-alarm" title="Price Alarm" aria-label="Price Alarm">
                 <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-                    <path d="M14.5 6.5A6 6 0 1 0 15 9" />
-                    <path d="M14.5 2.5v4h-4" />
+                    <path d="M4.6 12.5h8.8c-1 -1.1 -1.4 -2 -1.4 -3.6V7.9a3.4 3.4 0 0 0 -6 -2.2" />
+                    <path d="M6 6.4V8.9c0 1.6 -0.4 2.5 -1.4 3.6" />
+                    <path d="M7.5 14.4a1.7 1.7 0 0 0 3 0" />
                 </svg>
             </button>
             <button id="tool-undo" title="Undo drawing change" aria-label="Undo drawing change" disabled>
@@ -128,7 +104,27 @@
                     <path class="hide-lines-slash" d="M3 15 15 3" />
                 </svg>
             </button>
+            <button id="tool-reset" title="Reset View" aria-label="Reset View">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M14.5 6.5A6 6 0 1 0 15 9" />
+                    <path d="M14.5 2.5v4h-4" />
+                </svg>
+            </button>
         </div>
+        <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Switch to dark theme" aria-pressed="false">
+            <svg class="theme-icon theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="4"></circle>
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+            </svg>
+            <svg class="theme-icon theme-icon-moon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12.79A8.5 8.5 0 1 1 11.21 3 6.5 6.5 0 0 0 21 12.79Z"></path>
+            </svg>
+        </button>
+    </div>
+    <div id="interval-menu" role="menu" hidden></div>
+    <div id="chart-container">
+        <canvas id="chart"></canvas>
+        <div id="ohlc-info" hidden></div>
         <div id="line-toolbar" hidden>
             <div class="toolbar-color color-control" title="Line color">
                 <button id="line-color-button" class="color-button" type="button" aria-label="Line color">
@@ -281,29 +277,6 @@
             </button>
         </div>
         <input id="line-text-editor" type="text" maxlength="48" autocomplete="off" spellcheck="false" hidden>
-    </div>
-    <div id="range-bar">
-        <div class="range-selector" aria-label="Visible range">
-            <button class="range-button active" type="button" data-range="1D">1D</button>
-            <button class="range-button" type="button" data-range="5D">5D</button>
-            <button class="range-button" type="button" data-range="1M">1M</button>
-            <button class="range-button" type="button" data-range="3M">3M</button>
-            <button class="range-button" type="button" data-range="6M">6M</button>
-            <button class="range-button" type="button" data-range="YTD">YTD</button>
-            <button class="range-button" type="button" data-range="1Y">1Y</button>
-            <button class="range-button" type="button" data-range="5Y">5Y</button>
-            <button class="range-button" type="button" data-range="ALL">All</button>
-        </div>
-        <div id="range-status" aria-live="polite"></div>
-        <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Switch to dark theme" aria-pressed="false">
-            <svg class="theme-icon theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="4"></circle>
-                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
-            </svg>
-            <svg class="theme-icon theme-icon-moon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M21 12.79A8.5 8.5 0 1 1 11.21 3 6.5 6.5 0 0 0 21 12.79Z"></path>
-            </svg>
-        </button>
     </div>
     <div id="modal-overlay"></div>
     <div id="ma-modal">

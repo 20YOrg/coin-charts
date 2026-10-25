@@ -481,6 +481,149 @@ function findLineTextAt(chart, mouseX, mouseY, width, chartHeight) {
     return best;
 }
 
+// Interval picker: a button that reads like TradingView's (D, W, M for one day,
+// week or month, otherwise the number and unit: 9D, 4h, 30m) and opens a menu
+// grouped by unit, with a row at the top for a custom interval.
+const BASE_INTERVALS = ['1D', '3D', '1W', '1M', '3M', '6M'];
+const INTERVAL_UNIT_NAMES = { m: 'minute', h: 'hour', D: 'day', W: 'week', M: 'month' };
+const INTERVAL_GROUPS = [['m', 'Minutes'], ['h', 'Hours'], ['D', 'Days'], ['W', 'Weeks'], ['M', 'Months']];
+
+function parseIntervalLabel(interval) {
+    const match = /^(\d+)([mhDWM])$/.exec(interval || '');
+    return match ? { amount: Number(match[1]), unit: match[2] } : null;
+}
+
+export function shortIntervalLabel(interval) {
+    const spec = parseIntervalLabel(interval);
+    if (!spec) return interval || '';
+    return spec.amount === 1 && 'DWM'.includes(spec.unit) ? spec.unit : `${spec.amount}${spec.unit}`;
+}
+
+export function longIntervalLabel(interval) {
+    const spec = parseIntervalLabel(interval);
+    if (!spec) return interval;
+    return `${spec.amount} ${INTERVAL_UNIT_NAMES[spec.unit]}${spec.amount === 1 ? '' : 's'}`;
+}
+
+function setupIntervalPicker(chart) {
+    const button = document.getElementById('interval-button');
+    const menu = document.getElementById('interval-menu');
+    if (!button || !menu) {
+        console.error('interval-button element not found');
+        return;
+    }
+
+    // Sub-daily intervals cannot be derived from the loaded series, so they are
+    // only offered when the host declares it can fetch them.
+    const subDaily = typeof chart.options.onIntervalRequest === 'function'
+        ? (chart.options.intervals || []).filter(interval => isSubDailySpec(parseIntervalSpec(interval)))
+        : [];
+    const intervals = [...new Set([...subDaily, ...BASE_INTERVALS])];
+    const units = [
+        ...(subDaily.length ? [['m', 'minutes'], ['h', 'hours']] : []),
+        ['D', 'days'], ['W', 'weeks'], ['M', 'months'],
+    ];
+    let customAmount = 9;
+    let customUnit = 'D';
+
+    const current = () => chart.dataManager.interval;
+    const syncButton = () => { button.textContent = shortIntervalLabel(current()); };
+    // A host that changes the interval some other way can bring the label along.
+    chart.syncIntervalButton = syncButton;
+
+    const close = () => {
+        menu.hidden = true;
+        button.setAttribute('aria-expanded', 'false');
+    };
+
+    const render = () => {
+        const active = current();
+        const rows = ['<button type="button" class="interval-add" data-action="custom">'
+            + '<span aria-hidden="true">+</span> Add custom interval…</button>'];
+        const unitOptions = units
+            .map(([value, label]) => `<option value="${value}"${value === customUnit ? ' selected' : ''}>${label}</option>`)
+            .join('');
+        rows.push(`<div id="interval-custom" hidden><input type="number" min="1" max="999" inputmode="numeric" value="${customAmount}" aria-label="Amount">`
+            + `<select aria-label="Unit">${unitOptions}</select><button type="button" data-action="apply">Set</button></div>`);
+        for (const [unit, title] of INTERVAL_GROUPS) {
+            const inGroup = intervals.filter(value => parseIntervalLabel(value)?.unit === unit)
+                .sort((a, b) => parseIntervalLabel(a).amount - parseIntervalLabel(b).amount);
+            if (!inGroup.length) continue;
+            rows.push(`<div class="interval-group">${title}</div>`);
+            for (const value of inGroup) {
+                rows.push(`<button type="button" role="menuitemradio" aria-checked="${value === active}"`
+                    + ` class="${value === active ? 'active' : ''}" data-interval="${value}">${longIntervalLabel(value)}</button>`);
+            }
+        }
+        menu.innerHTML = rows.join('');
+    };
+
+    const open = () => {
+        render();
+        menu.hidden = false;
+        button.setAttribute('aria-expanded', 'true');
+        // Under the button's left edge, nudged left if it would run off screen.
+        const rect = button.getBoundingClientRect();
+        const left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8));
+        menu.style.left = `${left}px`;
+        menu.style.top = `${rect.bottom + 4}px`;
+    };
+
+    // Only adopt an interval once it actually applied: a sub-daily value the host
+    // cannot fetch and aggregation cannot derive (9m against 30m data) would
+    // otherwise leave the button claiming something the chart is not showing.
+    const apply = async (interval) => {
+        close();
+        if (interval === current()) return;
+        const applied = await chart.requestInterval(interval);
+        if (applied && !intervals.includes(interval)) intervals.push(interval);
+        syncButton();
+    };
+
+    const applyCustom = () => {
+        const form = document.getElementById('interval-custom');
+        const amount = Number.parseInt(form?.querySelector('input')?.value, 10);
+        if (!Number.isFinite(amount) || amount < 1) return;
+        customAmount = amount;
+        customUnit = form.querySelector('select').value;
+        apply(`${amount}${customUnit}`);
+    };
+
+    button.addEventListener('click', () => (menu.hidden ? open() : close()));
+    menu.addEventListener('click', (event) => {
+        const target = event.target.closest('button');
+        if (!target) return;
+        if (target.dataset.action === 'custom') {
+            const form = document.getElementById('interval-custom');
+            form.hidden = false;
+            target.hidden = true;
+            const input = form.querySelector('input');
+            input.focus();
+            input.select();
+            return;
+        }
+        if (target.dataset.action === 'apply') {
+            applyCustom();
+            return;
+        }
+        if (target.dataset.interval) apply(target.dataset.interval);
+    });
+    menu.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && event.target.closest('#interval-custom')) applyCustom();
+    });
+    document.addEventListener('pointerdown', (event) => {
+        if (!menu.hidden && !menu.contains(event.target) && !button.contains(event.target)) close();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !menu.hidden) {
+            close();
+            button.focus();
+        }
+    });
+    window.addEventListener('resize', close);
+    syncButton();
+}
+
 export function initEvents(chart) {
     const { canvas, options, view, dataManager, lines } = chart;
     const lineTextEditor = document.getElementById('line-text-editor');
@@ -1995,7 +2138,8 @@ export function initEvents(chart) {
                 return;
             }
         }
-        if ((e.key === 'Delete' || e.key === 'Backspace') && chart.selectedLineIndex !== -1) {
+        // Backspace in the custom-interval box is editing a number, not deleting the line.
+        if ((e.key === 'Delete' || e.key === 'Backspace') && chart.selectedLineIndex !== -1 && !isEditableTarget(e.target)) {
             deleteSelectedLine(chart);
         }
     });
@@ -2005,19 +2149,29 @@ export function initEvents(chart) {
         closeLineMenus();
     });
 
-    const scaleSelect = document.getElementById('scale-select');
-    if (scaleSelect) {
-        scaleSelect.addEventListener('change', (e) => {
+    // Scale: one button that flips between linear and log. Its icon shows the scale
+    // in use: a straight line for linear, a curve that flattens out for log.
+    const scaleButton = document.getElementById('scale-button');
+    if (scaleButton) {
+        const syncScaleButton = () => {
+            const log = options.scaleType === 'logarithmic';
+            scaleButton.classList.toggle('log', log);
+            scaleButton.title = log ? 'Log scale — switch to linear' : 'Linear scale — switch to log';
+            scaleButton.setAttribute('aria-label', scaleButton.title);
+        };
+        scaleButton.addEventListener('click', () => {
             lines.forEach((line) => {
                 if (line && !line.scaleType) line.scaleType = options.scaleType;
             });
-            options.scaleType = e.target.value;
+            options.scaleType = options.scaleType === 'logarithmic' ? 'linear' : 'logarithmic';
             chart.setAutoScaleY(true);
             view.priceStep = null;
             chart.render();
+            syncScaleButton();
         });
+        syncScaleButton();
     } else {
-        console.error('scale-select element not found');
+        console.error('scale-button element not found');
     }
 
     document.getElementById('tool-undo')?.addEventListener('click', () => {
@@ -2199,66 +2353,7 @@ export function initEvents(chart) {
         });
     });
 
-    const intervalSelect = document.getElementById('interval-select');
-    if (intervalSelect) {
-        // Sub-daily intervals cannot be derived from the loaded series, so they are
-        // only offered when the host declares it can fetch them. Without that the
-        // control keeps exactly the options in the markup.
-        const subDaily = (chart.options.intervals || []).filter(interval => isSubDailySpec(parseIntervalSpec(interval)));
-        if (subDaily.length && typeof chart.options.onIntervalRequest === 'function') {
-            subDaily
-                .filter(interval => !Array.from(intervalSelect.options).some(option => option.value === interval))
-                .sort((a, b) => parseIntervalSpec(a).ms - parseIntervalSpec(b).ms)
-                .forEach((interval, position) => {
-                    intervalSelect.add(new Option(interval, interval), position);
-                });
-
-            const customUnit = document.getElementById('custom-interval-unit');
-            if (customUnit && !Array.from(customUnit.options).some(option => option.value === 'm')) {
-                customUnit.add(new Option('minutes', 'm'), 0);
-                customUnit.add(new Option('hours', 'h'), 1);
-            }
-        }
-
-        // Injected options sit ahead of the markup's first entry, so start from
-        // what the chart actually loaded rather than whatever is now first.
-        intervalSelect.value = chart.dataManager.interval;
-        intervalSelect.addEventListener('change', async (e) => {
-            const requested = e.target.value;
-            const applied = await chart.requestInterval(requested);
-            // Snap back when the host could not supply the finer series, so the
-            // control never claims an interval the chart is not showing.
-            if (!applied) intervalSelect.value = chart.dataManager.interval;
-        });
-    } else {
-        console.error('interval-select element not found');
-    }
-
-    const customIntervalValue = document.getElementById('custom-interval-value');
-    const customIntervalUnit = document.getElementById('custom-interval-unit');
-    const customIntervalApply = document.getElementById('custom-interval-apply');
-    if (customIntervalValue && customIntervalUnit && customIntervalApply && intervalSelect) {
-        customIntervalApply.addEventListener('click', async () => {
-            const amount = Number.parseInt(customIntervalValue.value, 10);
-            if (!Number.isFinite(amount) || amount < 1) return;
-
-            // Only adopt the interval once it actually applied. A custom sub-daily
-            // value the host cannot fetch and aggregation cannot derive (9m against
-            // 30m data) would otherwise leave a dead option selected while the
-            // chart keeps showing something else.
-            const interval = `${amount}${customIntervalUnit.value}`;
-            const applied = await chart.requestInterval(interval);
-            if (!applied) {
-                intervalSelect.value = chart.dataManager.interval;
-                return;
-            }
-
-            if (!Array.from(intervalSelect.options).some(option => option.value === interval)) {
-                intervalSelect.add(new Option(interval, interval));
-            }
-            intervalSelect.value = interval;
-        });
-    }
+    setupIntervalPicker(chart);
 
     const crosshairButton = document.getElementById('tool-crosshair');
     if (crosshairButton) {
@@ -2538,27 +2633,6 @@ export function initEvents(chart) {
         });
     } else {
         console.error('tool-reset element not found');
-    }
-
-    const rangeButtons = Array.from(document.querySelectorAll('.range-button'));
-    const rangeStatus = document.getElementById('range-status');
-    if (rangeButtons.length) {
-        rangeButtons.forEach((button) => {
-            button.addEventListener('click', () => {
-                const range = button.dataset.range;
-                const applied = chart.setQuickRange(range);
-                if (applied) {
-                    rangeButtons.forEach(item => item.classList.toggle('active', item === button));
-                }
-                if (rangeStatus) {
-                    rangeStatus.textContent = applied && chart.view.timeRange
-                        ? `${chart.view.timeRange.startDate} to ${chart.view.timeRange.endDate}`
-                        : range === 'ALL' && applied
-                            ? 'All data'
-                            : 'No data in range';
-                }
-            });
-        });
     }
 
     window.addEventListener('resize', () => {
