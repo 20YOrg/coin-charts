@@ -586,8 +586,10 @@ export function renderCandles(ctx, options, data, view, width, height, candleWid
 
         const openY = priceToY(candle.open, chartHeight, view, options.scaleType);
         const closeY = priceToY(candle.close, chartHeight, view, options.scaleType);
-        const bodyHeight = Math.abs(openY - closeY);
-        const bodyY = Math.min(openY, closeY);
+        // A doji's open and close can be a fraction of a pixel apart; keep at least a 1px bar
+        // so the body still reads as a line across the wick instead of vanishing.
+        const bodyHeight = Math.max(1, Math.abs(openY - closeY));
+        const bodyY = Math.min(openY, closeY) - (bodyHeight - Math.abs(openY - closeY)) / 2;
         ctx.fillRect(x, bodyY, candleWidth, bodyHeight);
     });
 }
